@@ -47,7 +47,7 @@ Connect the following pins:
 
 ![Connections](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/Connections.JPG)
 
-The GPS-RTK2 board has its own 3.3V regulator on board. We will use this and power it from the Adalogger VBUS pin. That way the it can be powered via the Adalogger's
+The GPS-RTK2 board has its own 3.3V regulator on board. We will use this and power it from the Adalogger VBUS pin. That way it can be powered via the Adalogger's
 USB socket or the Adalogger LiPo battery.
 
 These connections will also work if you want to power the Adalogger using the USB-C socket on the SparkFun board.
@@ -62,7 +62,7 @@ Connect the SparkFun board to a suitable **active** L1/L2 GNSS antenna using the
 
 ## Rover and Base Mode
 
-Connecting the Adalogger A0 pin to GND will put the logger into base mode. Leave A0 floating for rover mode. The only differences between base and rover mode are:
+Connect the Adalogger A0 pin to GND to put the logger into base mode. Leave A0 floating for rover mode. The only differences between base and rover mode are:
 - The RAWX log filenames will start with "r_" for the rover and "b_" for the base
 - The F9P navigation engine dynamic model is set to "airborne <1g" for the rover and "stationary" for the base
 - (The dynamic models can be changed by editing the Arduino code)

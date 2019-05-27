@@ -1,6 +1,6 @@
 # SOFTWARE
 
-This guide describes how to install the Arduino IDE and all the libraries you will need for the F9P_RAWX_Logger
+This guide describes how to install the Arduino IDE and all the libraries you will need for the F9P_RAWX_Logger.
 
 The guide assumes you will be using Windows; the process would be slightly different under Linux or OSX.
 
