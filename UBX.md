@@ -304,17 +304,17 @@ if (!sd.begin(cardSelect, SD_SCK_MHZ(50))) {
 ## Serial RX Buffer
 
 The RAWX data rates can be high when the logger is tracking multiple satellites. This could be a problem when closing one SD log file and opening the next
-as we need to rely on the Serial receive buffer being large enough to buffer the data until the new file is open. Unfortunately, the SERIAL_BUFFER_SIZE is
-only 256 bytes, which isn't large enough and causes data to be dropped.
+as we need to rely on the serial receive buffer being large enough to buffer the data until the new file is open. Unfortunately, by default, the
+SERIAL_BUFFER_SIZE is only 256 bytes, which isn't large enough and causes data to be dropped.
 
-In previous projects, I have recommended increasing the size of the serial buffer by editing the file RingBuffer.h. This isn't an efficient way to increase
-the buffer size as:
+In previous projects, I have recommended increasing the size of the serial buffer by editing the file RingBuffer.h and changing the value of SERIAL_BUFFER_SIZE.
+This isn't an efficient way to increase the buffer size as:
 - both receive and transmit buffers for both Serial1 and Serial5 are increased in size, so you end up using four times as much RAM as necessary
 - the buffer size will be reset each time the Adafruit boards is updated
 
 In this project, we work around this by creating a separate large SerialBuffer using the same class as a normal RingBuffer. A timer interrupt is used to
-check for the arrival of Serial1 data and move it into the large SerialBuffer. The main loop then reads the data from SerialBuffer using the normal
-available and read functions.
+check for the arrival of Serial1 data and move it into SerialBuffer. The main loop then reads the data from SerialBuffer using the inherited
+.available and .read_char functions.
 
 Here is the line that defines the large SerialBuffer:
 
@@ -402,16 +402,16 @@ void TC3_Handler() {
 In the main loop, we enable the timer interrupt _after_ processing the NMEA messages using the Adafruit GPS library:
 
 ```
-          // Now that Serial1 should be idle and the buffer empty, start TC3 interrupts to copy all new data into SerialBuffer
-          // Set the timer interval to 10 * 10 / 230400 = 0.000434 secs (10 bytes * 10 bits (1 start, 8 data, 1 stop) at 230400 baud)
-          startTimerInterval(0.000434); 
+// Now that Serial1 should be idle and the buffer empty, start TC3 interrupts to copy all new data into SerialBuffer
+// Set the timer interval to 10 * 10 / 230400 = 0.000434 secs (10 bytes * 10 bits (1 start, 8 data, 1 stop) at 230400 baud)
+startTimerInterval(0.000434); 
 ```
 
 Then to read data from SerialBuffer, we can use the inherited .available and .read_char methods:
 
 ```
-      if (SerialBuffer.available()) {
-        uint8_t c = SerialBuffer.read_char();
+if (SerialBuffer.available()) {
+  uint8_t c = SerialBuffer.read_char();
 ```
 
 The interrupt service routine takes between 3 and 25 usec to execute depending on how many characters are available (0 to 10). This is a
@@ -420,6 +420,12 @@ significant overhead given that the ISR runs every 434 usec, but it is a price w
 ![TC3_ISR_1.JPG](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/TC3_ISR_1.JPG)
 
 ![TC3_ISR_2.JPG](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/TC3_ISR_2.JPG)
+
+
+Enjoy!
+
+**_Paul_**
+
 
 
 

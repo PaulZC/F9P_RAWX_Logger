@@ -6,7 +6,6 @@
 
 // Define how long we should log in minutes before changing to a new file
 // Sensible values are: 5, 10, 15, 20, 30, 60
-// 1 minute should work for testing purposes
 // Must be <= 60 (or RTC alarm code needs to be updated to match on HHMMSS)
 const int INTERVAL = 15;
 
@@ -24,26 +23,25 @@ const int dwell = 300;
 // Choose a good quality SD card. Some cheap cards can't handle the write rate.
 // Ensure the card is formatted as FAT32.
 
-// You need to enlarge the serial receive buffer to avoid buffer
-// overruns while data is being written to the SD card.
-// For the Adafruit Feather M0 Adalogger (SAMD):
-// See this post by MartinL: https://forum.arduino.cc/index.php?topic=365220.0
-// Under Windows, edit: C:\Users\ ...your_user... \AppData\Local\Arduino15\packages\adafruit\hardware\samd\1.4.1\cores\arduino\RingBuffer.h
-// and change: #define SERIAL_BUFFER_SIZE 256
-// to:         #define SERIAL_BUFFER_SIZE 6144
-
 // Send serial debug messages
-#define DEBUG // Comment this line out to disable debug messages
+//#define DEBUG // Comment this line out to disable debug messages
 
 // Connect a normally-open push-to-close switch between swPin and GND.
 // Press it to stop logging and close the log file.
-#define swPin 15 // Digital Pin 15 (0.2" away from the GND pin on the Adalogger)
+#define swPin 15 // A1 / Digital Pin 15 (0.2" away from the GND pin on the Adalogger)
 
 // Connect modePin to GND to select base mode. Leave open for rover mode.
 #define modePin 14 // A0 / Digital Pin 14
 
+#ifdef DEBUG
+// Use A3 / Digital Pin 17 to show how much time is spent in the TC3 interrupt service routine
+#define pinISR 17
+#endif
+
 // LEDs
+// The red LED flashes during SD card writes
 #define RedLED 13 // The red LED on the Adalogger is connected to Digital Pin 13
+// The green LED indicates that the GNSS has established a fix 
 #define GreenLED 8 // The green LED on the Adalogger is connected to Digital Pin 8
 
 // Include the Adafruit GPS Library
@@ -54,7 +52,7 @@ const int dwell = 300;
 Adafruit_GPS GPS(&Serial1); // M0 hardware serial
 // Set GPSECHO to 'false' to turn off echoing the GPS data to the Serial console
 // Set to 'true' if you want to debug and listen to the raw GPS sentences
-#define GPSECHO true //false
+#define GPSECHO false
 // this keeps track of whether we're using the interrupt
 // off by default!
 boolean usingInterrupt = false;
@@ -97,6 +95,12 @@ volatile bool alarmFlag = false; // RTC alarm (interrupt) flag
 int valfix = 0;
 
 bool stop_pressed = false; // Flag to indicate if stop switch was pressed to stop logging
+
+// Define SerialBuffer as a large RingBuffer which we will use to store the Serial1 receive data
+// Actual Serial1 receive data will be copied into SerialBuffer by a timer interrupt
+// https://gist.github.com/jdneo/43be30d85080b175cb5aed3500d3f989
+// That way, we do not need to increase the size of the Serial1 receive buffer (by editing RingBuffer.h)
+RingBufferN<8192> SerialBuffer; // Define SerialBuffer as a RingBuffer of size 8192 bytes
 
 // Loop Steps
 #define init          0
@@ -283,6 +287,84 @@ void alarmMatch()
   alarmFlag = true; // Set alarm flag
 }
 
+// TimerCounter3 functions to copy Serial1 receive data into SerialBuffer
+// https://gist.github.com/jdneo/43be30d85080b175cb5aed3500d3f989
+#define CPU_HZ 48000000
+#define TIMER_PRESCALER_DIV 16
+
+// Set TC3 Interval (sec)
+void setTimerInterval(float intervalS) {
+  int compareValue = intervalS * CPU_HZ / TIMER_PRESCALER_DIV;
+  if (compareValue > 65535) compareValue = 65535;
+  TcCount16* TC = (TcCount16*) TC3;
+  // Make sure the count is in a proportional position to where it was
+  // to prevent any jitter or disconnect when changing the compare value.
+  TC->COUNT.reg = map(TC->COUNT.reg, 0, TC->CC[0].reg, 0, compareValue);
+  TC->CC[0].reg = compareValue;
+  while (TC->STATUS.bit.SYNCBUSY == 1);
+}
+
+// Start TC3 with a specified interval
+void startTimerInterval(float intervalS) {
+  REG_GCLK_CLKCTRL = (uint16_t) (GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK0 | GCLK_CLKCTRL_ID_TCC2_TC3) ;
+  while ( GCLK->STATUS.bit.SYNCBUSY == 1 ); // wait for sync
+
+  TcCount16* TC = (TcCount16*) TC3;
+
+  TC->CTRLA.reg &= ~TC_CTRLA_ENABLE;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
+  // Use the 16-bit timer
+  TC->CTRLA.reg |= TC_CTRLA_MODE_COUNT16;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
+  // Use match mode so that the timer counter resets when the count matches the compare register
+  TC->CTRLA.reg |= TC_CTRLA_WAVEGEN_MFRQ;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
+  // Set prescaler to 16
+  TC->CTRLA.reg |= TC_CTRLA_PRESCALER_DIV16;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
+  setTimerInterval(intervalS);
+
+  // Enable the compare interrupt
+  TC->INTENSET.reg = 0;
+  TC->INTENSET.bit.MC0 = 1;
+
+  NVIC_SetPriority(TC3_IRQn, 3); // Set the TC3 interrupt priority to 3 (lowest)
+  NVIC_EnableIRQ(TC3_IRQn);
+
+  TC->CTRLA.reg |= TC_CTRLA_ENABLE;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+}
+
+// TC3 Interrupt Handler
+void TC3_Handler() {
+  
+#ifdef pinISR
+  // Use A3 / Digital Pin 17 to show how much time is spent in the TC3 interrupt service routine
+  digitalWrite(pinISR, HIGH);
+#endif
+
+  TcCount16* TC = (TcCount16*) TC3;
+  // If this interrupt is due to the compare register matching the timer count
+  // copy any available Serial1 data into SerialBuffer
+  if (TC->INTFLAG.bit.MC0 == 1) {
+    TC->INTFLAG.bit.MC0 = 1;
+    int available1 = Serial1.available(); // Check if there is any data waiting in the Serial1 RX buffer
+    while (available1 > 0) { 
+        SerialBuffer.store_char(Serial1.read()); // If there is, copy it into our RingBuffer
+        available1--;
+    }
+  }
+  
+#ifdef pinISR
+  digitalWrite(pinISR, LOW);
+#endif
+
+}
+
 void setup()
 {
   // initialize digital pins RedLED and GreenLED as outputs.
@@ -303,6 +385,12 @@ void setup()
 
   // initialize modePin as an input for the mode select
   pinMode(modePin, INPUT_PULLUP);
+
+#ifdef pinISR
+  // Use A3 / Digital Pin 17 to show how much time is spent in the TC3 interrupt service routine
+  pinMode(pinISR, OUTPUT);
+  digitalWrite(pinISR, LOW);
+#endif
 
   delay(10000); // Allow 10 sec for user to open serial monitor (Comment this line if required)
   //while (!Serial); // OR Wait for user to run python script or open serial monitor (Comment this line as required)
@@ -485,7 +573,11 @@ void loop() // run over and over again
           
           delay(1100); // Wait
           
-          while(Serial1.available()){Serial1.read();} // Flush RX buffer to clear UBX acknowledgement
+          while(Serial1.available()){Serial1.read();} // Flush RX buffer to clear UBX acknowledgements
+
+          // Now that Serial1 should be idle and the buffer empty, start TC3 interrupts to copy all new data into SerialBuffer
+          // Set the timer interval to 10 * 10 / 230400 = 0.000434 secs (10 bytes * 10 bits (1 start, 8 data, 1 stop) at 230400 baud)
+          startTimerInterval(0.000434); 
           
           loop_step = start_rawx; // start rawx messages
         }
@@ -499,10 +591,10 @@ void loop() // run over and over again
 
       bufferPointer = 0; // (Re)initialise bufferPointer
 
-      while (Serial1.available() < 10) { ; } // Wait for one UBX acknowledgement's worth of data (10 bytes)
+      while (SerialBuffer.available() < 10) { ; } // Wait for one UBX acknowledgement's worth of data (10 bytes)
       
       for (int y=0;y<10;y++) { // Get ten bytes
-        serBuffer[bufferPointer] = Serial1.read(); // Add a character to serBuffer
+        serBuffer[bufferPointer] = SerialBuffer.read_char(); // Add a character to serBuffer
         bufferPointer++; // Increment the pointer   
       }
       // Now check if these bytes were an acknowledgement
@@ -603,8 +695,8 @@ void loop() // run over and over again
 
     // Stuff bytes into serBuffer and write when we have reached SDpacket
     case write_file: {
-      if (Serial1.available()) {
-        uint8_t c = Serial1.read();
+      if (SerialBuffer.available()) {
+        uint8_t c = SerialBuffer.read_char();
         serBuffer[bufferPointer] = c;
         bufferPointer++;
         if (bufferPointer == SDpacket) {
@@ -835,8 +927,8 @@ void loop() // run over and over again
       int waitcount = 0;
       // leave 10 bytes in the serial buffer as this _should_ be the message acknowledgement
       while (waitcount < dwell) { // Wait for residual data
-        while (Serial1.available() > 10) { // Leave 10 bytes in the serial buffer
-          serBuffer[bufferPointer] = Serial1.read(); // Put extra bytes into serBuffer
+        while (SerialBuffer.available() > 10) { // Leave 10 bytes in the serial buffer
+          serBuffer[bufferPointer] = SerialBuffer.read_char(); // Put extra bytes into serBuffer
           bufferPointer++;
           if (bufferPointer == SDpacket) { // Write a full packet
             bufferPointer = 0;
@@ -891,7 +983,7 @@ void loop() // run over and over again
       // If they contain residual data, save it to file. This means we have probably already saved acknowledgement(s)
       // to file and there's now very little we can do about that except hope that RTKLib knows to ignore them!
       for (int y=0;y<10;y++) { // Add ten bytes
-        serBuffer[bufferPointer] = Serial1.read(); // Add a character to serBuffer
+        serBuffer[bufferPointer] = SerialBuffer.read_char(); // Add a character to serBuffer
         bufferPointer++; // Increment the pointer   
       }
       // Now check if these bytes were an acknowledgement
@@ -992,8 +1084,8 @@ void loop() // run over and over again
       int waitcount = 0;
       // leave 10 bytes in the serial buffer as this _should_ be the message acknowledgement
       while (waitcount < dwell) { // Wait for residual data
-        while (Serial1.available() > 10) { // Leave 10 bytes in the serial buffer
-          serBuffer[bufferPointer] = Serial1.read(); // Put extra bytes into serBuffer
+        while (SerialBuffer.available() > 10) { // Leave 10 bytes in the serial buffer
+          serBuffer[bufferPointer] = SerialBuffer.read_char(); // Put extra bytes into serBuffer
           bufferPointer++;
           if (bufferPointer == SDpacket) { // Write a full packet
             bufferPointer = 0;
@@ -1048,7 +1140,7 @@ void loop() // run over and over again
       // If they contain residual data, save it to file. This means we have probably already saved acknowledgement(s)
       // to file and there's now very little we can do about that except hope that RTKLib knows to ignore them!
       for (int y=0;y<10;y++) { // Add ten bytes
-        serBuffer[bufferPointer] = Serial1.read(); // Add a character to serBuffer
+        serBuffer[bufferPointer] = SerialBuffer.read_char(); // Add a character to serBuffer
         bufferPointer++; // Increment the pointer   
       }
       // Now check if these bytes were an acknowledgement
