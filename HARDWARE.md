@@ -17,13 +17,13 @@ as FAT32. If you have problems formatting the card, you might need to download a
 [SD Association](https://www.sdcard.org/downloads/formatter/index.html). Insert the card into the Adalogger before connecting USB
 or LiPo battery power. **Don't insert or remove the card while power is connected!**
 
-There are many ways to hook up the Adalogger. The simplest is to use header pins, breadboard and jumper wires. There are full instructions
+There are many ways to hook up the Adalogger. The simplest is to use header pins and jumper wires. There are full instructions
 available on the [Adafruit website](https://learn.adafruit.com/adafruit-feather-m0-adalogger/assembly).
 
 ## SparkFun GPS-RTK2 Board
 
 The [SparkFun GPS-RTK2 Board](https://www.sparkfun.com/products/15136) is equipped with the 
-(u-blox ZED-F9P)[https://www.u-blox.com/en/product/zed-f9p-module] GNSS module.
+[u-blox ZED-F9P](https://www.u-blox.com/en/product/zed-f9p-module) GNSS module.
 
 The u-blox ZED-F9P is a sophisticated dual band (L1 + L2) GNSS receiver which can act as a Real Time Kinematic base or rover. It has a variety of interfaces:
 UART, SPI, I2C and USB. SparkFun have included their Qwiic I2C connectors on the board, making it easy to interface it to their other Qwiic boards.
@@ -33,7 +33,7 @@ these to remain enabled).
 This project only logs RAWX messages which can be post-processed (PPK) using [rtklibexplorer's](https://rtklibexplorer.wordpress.com/) version of
 [RTKLIB](http://rtkexplorer.com/downloads/rtklib-code/); it does not make use of the F9P's RTK features.
 
-Like the Adalogger, there are many ways to hook up the F9P board. Again, the simplest is to use header pins, breadboard and jumper wires.
+Like the Adalogger, there are many ways to hook up the F9P board. Again, the simplest is to use header pins and jumper wires.
 
 ## Connections
 
