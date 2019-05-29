@@ -119,7 +119,12 @@ at the bottom of the serial monitor window. All being well, after 10 seconds you
 Now connect the LiPo battery. You can then disconnect the USB cable if you want to and the logger will keep logging, drawing power from the LiPo battery.
 
 The green LED on the Adalogger will light up when a GNSS fix is established and the logger is about to start logging RAWX data. If the LED doesn't illuminate
-after ~1 minute, check the antenna has a clear view of the sky.
+after ~1 minute, check the antenna has a clear view of the sky. There are DEBUG messages that you can enable to help diagnose problems. The messages will
+appear in the serial monitor. Uncomment the line which says:
+
+```
+#define DEBUG // Comment this line out to disable debug messages
+```
 
 The red LED on the Adalogger will flash quickly each time data is written to the SD card. Continuous red indicates: a problem with the SD card; or that the
 stop switch has been pressed; or that the LiPo battery is low.

@@ -7,6 +7,8 @@ A guide on how to assemble a GNSS PPK RAWX Logger from an [Adafruit Feather M0 A
 and a [SparkFun GPS-RTK2 Board](https://www.sparkfun.com/products/15136) which incorporates the [u-blox ZED-F9P](https://www.u-blox.com/en/product/zed-f9p-module)
 dual band (L1 + L2) GNSS receiver
 
+![RAWX_Logger](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/RAWX_Logger.JPG)
+
 ![Connections](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/Connections.JPG)
 
 The RAWX files logged by this project can be processed using [rtklibexplorer's](https://rtklibexplorer.wordpress.com/)

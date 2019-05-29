@@ -202,7 +202,7 @@ and values of zero:
 
 ```
 setNMEAoff[] = { 0xb5, 0x62,  0x06, 0x8a,  0x0e, 0x00,  0x00, 0x01, 0x00, 0x00,
-  0xbb, 0x00, 0x91, 0x20,  0x00,  0xac, 0x00, 0x91, 0xa20,  0x00 };
+  0xbb, 0x00, 0x91, 0x20,  0x00,  0xac, 0x00, 0x91, 0x20,  0x00 };
 len_setNMEAoff = 20;
 ```
 
@@ -287,11 +287,143 @@ every 250 milliseconds. The RX line goes high (3.3V) when idle. Check that the R
 end of each 250 millisecond burst. If the gaps are small, you may need to increase the UART baud rate higher than 230400 baud or decrease the RAWX
 measurement rate to 2 Hz or lower.
 
+![Serial.JPG](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/Serial.JPG)
+
 Likewise, use your oscilloscope to monitor the red LED (digital pin 13). The red LED is on during SD card writes. Again the code must not be
-writing to the card continuously. There must be gaps between writes every 250 milliseconds. If the SD card is continously busy: replace your SD
-card with a faster one; decrease the RAWX measurement rate; or consider changing the SdFat clock speed by editing the line which says:
+writing to the card continuously. There must be gaps between writes every 250 milliseconds.
+
+![SDwrite.JPG](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/SDwrite.JPG)
+
+If the SD card is continously busy: replace your SD card with a faster one; decrease the RAWX measurement rate; or consider changing the SdFat clock speed
+by editing the line which says:
 
 ```
 if (!sd.begin(cardSelect, SD_SCK_MHZ(50))) {
 ```
+
+## Serial RX Buffer
+
+The RAWX data rates can be high when the logger is tracking multiple satellites. This could be a problem when closing one SD log file and opening the next
+as we need to rely on the Serial receive buffer being large enough to buffer the data until the new file is open. Unfortunately, the SERIAL_BUFFER_SIZE is
+only 256 bytes, which isn't large enough and causes data to be dropped.
+
+In previous projects, I have recommended increasing the size of the serial buffer by editing the file RingBuffer.h. This isn't an efficient way to increase
+the buffer size as:
+- both receive and transmit buffers for both Serial1 and Serial5 are increased in size, so you end up using four times as much RAM as necessary
+- the buffer size will be reset each time the Adafruit boards is updated
+
+In this project, we work around this by creating a separate large SerialBuffer using the same class as a normal RingBuffer. A timer interrupt is used to
+check for the arrival of Serial1 data and move it into the large SerialBuffer. The main loop then reads the data from SerialBuffer using the normal
+available and read functions.
+
+Here is the line that defines the large SerialBuffer:
+
+```
+// Define SerialBuffer as a large RingBuffer which we will use to store the Serial1 receive data
+// That way, we do not need to increase the size of the Serial1 receive buffer (by editing RingBuffer.h)
+RingBufferN<8192> SerialBuffer; // Define SerialBuffer as a RingBuffer of size 8192 bytes
+```
+
+Here is the code that sets up the TC3 timer interrupt. It is based on the code provided by
+[Sheng Chen jdneo](https://gist.github.com/jdneo/43be30d85080b175cb5aed3500d3f989)
+
+```
+// TimerCounter3 functions to copy Serial1 receive data into SerialBuffer
+#define CPU_HZ 48000000
+#define TIMER_PRESCALER_DIV 16
+
+// Set TC3 Interval (sec)
+void setTimerInterval(float intervalS) {
+  int compareValue = intervalS * CPU_HZ / TIMER_PRESCALER_DIV;
+  if (compareValue > 65535) compareValue = 65535;
+  TcCount16* TC = (TcCount16*) TC3;
+  // Make sure the count is in a proportional position to where it was
+  // to prevent any jitter or disconnect when changing the compare value.
+  TC->COUNT.reg = map(TC->COUNT.reg, 0, TC->CC[0].reg, 0, compareValue);
+  TC->CC[0].reg = compareValue;
+  while (TC->STATUS.bit.SYNCBUSY == 1);
+}
+
+// Start TC3 with a specified interval
+void startTimerInterval(float intervalS) {
+  REG_GCLK_CLKCTRL = (uint16_t) (GCLK_CLKCTRL_CLKEN | GCLK_CLKCTRL_GEN_GCLK0 | GCLK_CLKCTRL_ID_TCC2_TC3) ;
+  while ( GCLK->STATUS.bit.SYNCBUSY == 1 ); // wait for sync
+
+  TcCount16* TC = (TcCount16*) TC3;
+
+  TC->CTRLA.reg &= ~TC_CTRLA_ENABLE;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
+  // Use the 16-bit timer
+  TC->CTRLA.reg |= TC_CTRLA_MODE_COUNT16;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
+  // Use match mode so that the timer counter resets when the count matches the compare register
+  TC->CTRLA.reg |= TC_CTRLA_WAVEGEN_MFRQ;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
+  // Set prescaler to 16
+  TC->CTRLA.reg |= TC_CTRLA_PRESCALER_DIV16;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+
+  setTimerInterval(intervalS);
+
+  // Enable the compare interrupt
+  TC->INTENSET.reg = 0;
+  TC->INTENSET.bit.MC0 = 1;
+
+  NVIC_SetPriority(TC3_IRQn, 3); // Set the TC3 interrupt priority to 3 (lowest)
+  NVIC_EnableIRQ(TC3_IRQn);
+
+  TC->CTRLA.reg |= TC_CTRLA_ENABLE;
+  while (TC->STATUS.bit.SYNCBUSY == 1); // wait for sync
+}
+```
+
+And here is the interrupt handler that copies the serial data from the (small) serial receive buffer into our (large) RingBuffer:
+
+```
+// TC3 Interrupt Handler
+void TC3_Handler() {
+  TcCount16* TC = (TcCount16*) TC3;
+  // If this interrupt is due to the compare register matching the timer count
+  // copy any available Serial1 data into SerialBuffer
+  if (TC->INTFLAG.bit.MC0 == 1) {
+    TC->INTFLAG.bit.MC0 = 1;
+    int available1 = Serial1.available(); // Check if there is any data waiting in the Serial1 RX buffer
+    while (available1 > 0) { 
+        SerialBuffer.store_char(Serial1.read()); // If there is, copy it into our RingBuffer
+        available1--;
+    }
+  }
+}
+```
+
+In the main loop, we enable the timer interrupt _after_ processing the NMEA messages using the Adafruit GPS library:
+
+```
+          // Now that Serial1 should be idle and the buffer empty, start TC3 interrupts to copy all new data into SerialBuffer
+          // Set the timer interval to 10 * 10 / 230400 = 0.000434 secs (10 bytes * 10 bits (1 start, 8 data, 1 stop) at 230400 baud)
+          startTimerInterval(0.000434); 
+```
+
+Then to read data from SerialBuffer, we can use the inherited .available and .read_char methods:
+
+```
+      if (SerialBuffer.available()) {
+        uint8_t c = SerialBuffer.read_char();
+```
+
+The interrupt service routine takes between 3 and 25 usec to execute depending on how many characters are available (0 to 10). This is a
+significant overhead given that the ISR runs every 434 usec, but it is a price worth paying to avoid having to edit RingBuffer.h.
+
+![TC3_ISR_1.JPG](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/TC3_ISR_1.JPG)
+
+![TC3_ISR_2.JPG](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/TC3_ISR_2.JPG)
+
+
+
+
+
+
 

@@ -132,42 +132,6 @@ All being well, you should now have a Documents\Arduino\RAWX_Logger_F9P folder c
 In the Ardino IDE, click on the File menu and then "Open...". When the file window opens double-click on the RAWX_Logger_F9P folder
 and then double-click on the RAWX_Logger_F9P.ino file. The logger code will open in a new window. You can now close the Blink window.
 
-## Serial RX Buffer
-
-One final change you need to make is to increase the size of the serial receive buffer in the Arduino board definition. We need the buffer to be large enough
-so it can hold the incoming RAWX serial data while we close the SD card log file and open a new one.
-
-You will need to use File Explorer (in Windows) to navigate to:
-- C:\Users\<your user name>\AppData\Local\Arduino15\packages\adafruit\hardware\samd\1.4.1\cores\arduino
-
-Some of these directories are hidden. You will need to click on the View menu and ensure that both the "Hidden items" and "File name extensions"
-tick boxes are ticked.
-
-Find the file called RingBuffer.h. Right-click on it and choose "Open with" and "WordPad".
-
-Scroll down and find the line which says:
-- #define SERIAL_BUFFER_SIZE 256
-
-Change the 256 to 6144. Save the file and quit WordPad. The next time the Arduino code is compiled, the serial buffer will be increased.
-
-![RingBuffer](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/RingBuffer.JPG)
-
-You are now ready to upload the logger code to the Adalogger using the arrow icon below the Edit menu in the IDE just like you did with Blink.
-
-Sadly, you will need to edit RingBuffer.h each time you update the Adafruit SAMD boards. If your RAWX_Logger stops working, or the log files
-appear corrupt, the serial buffer size will proably have been reset back to 256.
-
-This is a very inefficient way to increase the buffer size as both the transmit and receive buffers are increased in size for both Serial1 and Serial5. I.e.
-increasing the buffer size uses _four_ times as much RAM as you might expect. You can reduce this to two times if you edit variant.h and variant.cpp for the
-feather_m0 and comment out the definitions for Serial5. If anyone knows an 'easy' way to increase the size of the Serial1 receive buffer only, without creating
-a custom variant, please get in touch!
-
-### variant.h (in ...\1.4.1\variants\feather_m0):
-![VariantH](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/VariantH.JPG)
-
-### variant.cpp (in ...\1.4.1\variants\feather_m0):
-![VariantCPP](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/VariantCPP.JPG)
-
 ## Next > [HARDWARE.md](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/HARDWARE.md)
 
 
