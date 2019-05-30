@@ -246,7 +246,7 @@ To make the writing as efficient and as fast as possible, data is written to the
 
 The code checks the UBX serial data continuously, counting the number of bytes and calculating the expected checksum for each message.
 If the checksum does not match, due to an error or dropped byte in the serial data, the log file is automatically closed and a new one opened.
-You can find the code that does this startine with the line:
+You can find the code that does this starting with the line:
 
 ```
 case restart_file:
@@ -284,7 +284,7 @@ more data than the serial interface and SD card can cope with.
 
 If you have access to an oscilloscope, you can check how much data is being received on the Adalogger RX pin. You should see bursts of data
 every 250 milliseconds. The RX line goes high (3.3V) when idle. Check that the RX line is not continuously busy. There must be gaps at the
-end of each 250 millisecond burst. If the gaps are small, you may need to increase the UART baud rate higher than 230400 baud or decrease the RAWX
+end of each 250 millisecond interval. If the gaps are small, you may need to increase the UART baud rate higher than 230400 baud or decrease the RAWX
 measurement rate to 2 Hz or lower.
 
 ![Serial.JPG](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/Serial.JPG)
@@ -312,7 +312,7 @@ This isn't an efficient way to increase the buffer size as:
 - both receive and transmit buffers for both Serial1 and Serial5 are increased in size, so you end up using four times as much RAM as necessary
 - the buffer size will be reset each time the Adafruit boards is updated
 
-In this project, we work around this by creating a separate large SerialBuffer using the same class as a normal RingBuffer. A timer interrupt is used to
+In this project, we work around this by creating a separate large SerialBuffer using the same class as a normal serial RingBuffer. A timer interrupt is used to
 check for the arrival of Serial1 data and move it into SerialBuffer. The main loop then reads the data from SerialBuffer using the inherited
 .available and .read_char functions.
 

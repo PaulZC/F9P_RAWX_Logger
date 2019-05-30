@@ -126,6 +126,8 @@ appear in the serial monitor. Uncomment the line which says:
 #define DEBUG // Comment this line out to disable debug messages
 ```
 
+and upload the code again.
+
 The red LED on the Adalogger will flash quickly each time data is written to the SD card. Continuous red indicates: a problem with the SD card; or that the
 stop switch has been pressed; or that the LiPo battery is low.
 
@@ -153,7 +155,7 @@ In Linux:
 - cat b_*.ubx > base.ubx
 
 The HHMMSS filename format ensures that the files are concatenated in the correct order. If your files straddle UTC midnight, you will have to combine the files
-from day1 and day2 seperately first and then combine the two day files together.
+from day1 and day2 separately first and then combine the two day files together.
 
 You can then process a pair of base and rover files using [RTKLIB](http://rtkexplorer.com/downloads/rtklib-code/).
 
