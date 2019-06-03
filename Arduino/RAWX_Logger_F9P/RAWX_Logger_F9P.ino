@@ -24,7 +24,7 @@ const int dwell = 300;
 // Ensure the card is formatted as FAT32.
 
 // Send serial debug messages
-//#define DEBUG // Comment this line out to disable debug messages
+#define DEBUG // Comment this line out to disable debug messages
 
 // Connect a normally-open push-to-close switch between swPin and GND.
 // Press it to stop logging and close the log file.
@@ -158,6 +158,7 @@ static const int len_setUART2off = 15;
 static const uint8_t setUSBoff[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x01, 0x00, 0x65, 0x10,  0x00 };
 static const int len_setUSBoff = 15;
 
+/*
 // Disable the RXM_RAWX, RXM_SFRBX and TIM_TM2 binary messages
 // UBX-CFG-VALSET message with key IDs of:
 // 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
@@ -185,6 +186,43 @@ static const uint8_t setRAWXon[] = {
   0x32, 0x02, 0x91, 0x20,  0x01,
   0x79, 0x01, 0x91, 0x20,  0x01 };
 static const int len_setRAWXon = 25;
+*/
+
+// Disable the RXM_RAWX, RXM_SFRBX, TIM_TM2, NAV_POSLLH and NAV_PVT binary messages
+// UBX-CFG-VALSET message with key IDs of:
+// 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
+// 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
+// 0x20910179 (CFG-MSGOUT-UBX_TIM_TM2_UART1)
+// 0x2091002a (CFG-MSGOUT-UBX_NAV_ POSLLH_UART1)
+// 0x20910007 (CFG-MSGOUT-UBX_NAV_PVT_UART1)
+// and values (rates) of zero:
+static const uint8_t setRAWXoff[] = {
+  0xb5, 0x62,  0x06, 0x8a,  0x1d, 0x00,
+  0x00, 0x01, 0x00, 0x00,
+  0xa5, 0x02, 0x91, 0x20,  0x00,
+  0x32, 0x02, 0x91, 0x20,  0x00,
+  0x79, 0x01, 0x91, 0x20,  0x00,
+  0x2a, 0x00, 0x91, 0x20,  0x00,
+  0x07, 0x00, 0x91, 0x20,  0x00 };
+static const int len_setRAWXoff = 35;
+
+// Enable the RXM_RAWX, RXM_SFRBX, TIM_TM2, NAV_POSLLH and NAV_PVT binary messages in RAM
+// UBX-CFG-VALSET message with key IDs of:
+// 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
+// 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
+// 0x20910179 (CFG-MSGOUT-UBX_TIM_TM2_UART1)
+// 0x2091002a (CFG-MSGOUT-UBX_NAV_POSLLH_UART1)
+// 0x20910007 (CFG-MSGOUT-UBX_NAV_PVT_UART1)
+// and values (rates) of 1:
+static const uint8_t setRAWXon[] = {
+  0xb5, 0x62,  0x06, 0x8a,  0x1d, 0x00,
+  0x00, 0x01, 0x00, 0x00,
+  0xa5, 0x02, 0x91, 0x20,  0x01,
+  0x32, 0x02, 0x91, 0x20,  0x01,
+  0x79, 0x01, 0x91, 0x20,  0x01,
+  0x2a, 0x00, 0x91, 0x20,  0x01,   // Change the 0x01 to 0x00 to leave NAV_POSLLH disabled
+  0x07, 0x00, 0x91, 0x20,  0x01 }; // Change the 0x01 to 0x00 to leave NAV_PVT disabled
+static const int len_setRAWXon = 35;
 
 // Enable the NMEA GGA and RMC messages and disable the GLL, GSA, GSV, VTG, and TXT(INF) messages
 // UBX-CFG-VALSET message with key IDs of:
@@ -415,6 +453,7 @@ void setup()
   // Restart serial communications
   GPS.begin(230400); // Restart Serial1 at 230400 baud
 
+/*
   // Disable the I2C, UART2 and USB interfaces
   // (This must make the ZED-F9P more efficient?!)
   sendUBX(setI2Coff, len_setI2Coff);
@@ -423,6 +462,7 @@ void setup()
   delay(100);
   sendUBX(setUSBoff, len_setUSBoff);
   delay(100);
+*/
 
   // Disable RAWX messages
   sendUBX(setRAWXoff, len_setRAWXoff);
@@ -567,9 +607,9 @@ void loop() // run over and over again
           //sendUBX(setRATE_20Hz, len_setRATE); // Set Navigation/Measurement Rate to 20 Hz
           //sendUBX(setRATE_10Hz, len_setRATE); // Set Navigation/Measurement Rate to 10 Hz
           //sendUBX(setRATE_5Hz, len_setRATE); // Set Navigation/Measurement Rate to 5 Hz
-          sendUBX(setRATE_4Hz, len_setRATE); // Set Navigation/Measurement Rate to 4 Hz
+          //sendUBX(setRATE_4Hz, len_setRATE); // Set Navigation/Measurement Rate to 4 Hz
           //sendUBX(setRATE_2Hz, len_setRATE); // Set Navigation/Measurement Rate to 2 Hz
-          //sendUBX(setRATE_1Hz, len_setRATE); // Set Navigation/Measurement Rate to 1 Hz
+          sendUBX(setRATE_1Hz, len_setRATE); // Set Navigation/Measurement Rate to 1 Hz
           
           delay(1100); // Wait
           
@@ -756,6 +796,11 @@ void loop() // run over and over again
             }
           }
           break;
+          // RXM_RAWX is class 0x02 ID 0x15
+          // RXM_SFRBF is class 0x02 ID 0x13
+          // TIM_TM2 is class 0x0d ID 0x03
+          // NAV_POSLLH is class 0x01 ID 0x02
+          // NAV_PVT is class 0x01 ID 0x07
           case (looking_for_class): {
             ubx_class = c;
             ubx_expected_checksum_A = ubx_expected_checksum_A + c; // Update the expected checksum
@@ -763,8 +808,8 @@ void loop() // run over and over again
             ubx_state = looking_for_ID; // Now look for ID byte
 #ifdef DEBUG
             // Class syntax checking
-            if ((ubx_class != 0x02) and (ubx_class != 0x0D)) {
-              Serial.println("Panic!! Was expecting Class of 0x02 or 0x0D but did not receive one!");
+            if ((ubx_class != 0x02) and (ubx_class != 0x0d) and (ubx_class != 0x01)) {
+              Serial.println("Panic!! Was expecting Class of 0x02 or 0x0d or 0x01 but did not receive one!");
               ubx_state = sync_lost;
             }
 #endif
@@ -781,8 +826,12 @@ void loop() // run over and over again
               Serial.println("Panic!! Was expecting ID of 0x15 or 0x13 but did not receive one!");
               ubx_state = sync_lost;
             }
-            else if ((ubx_class == 0x0D) and (ubx_ID != 0x03)) {
+            else if ((ubx_class == 0x0d) and (ubx_ID != 0x03)) {
               Serial.println("Panic!! Was expecting ID of 0x03 but did not receive one!");
+              ubx_state = sync_lost;
+            }
+            else if ((ubx_class == 0x01) and ((ubx_ID != 0x02) and (ubx_ID != 0x07))) {
+              Serial.println("Panic!! Was expecting ID of 0x02 or 0x07 but did not receive one!");
               ubx_state = sync_lost;
             }
 #endif
@@ -803,6 +852,22 @@ void loop() // run over and over again
           }
           break;
           case (processing_payload): {
+            // If this is a NAV_PVT message, check the flags byte (byte offset 21) and flash the green LED if the carrSoln is fixed
+            if ((ubx_class == 0x01) and (ubx_ID == 0x07)) { // Is this a NAV_PVT message (class 0x01 ID 0x07)?
+              if (ubx_length == 71) { // Is this byte offset 21? (ubx_length will be 92 for byte offset 0, so will be 71 for byte offset 21)
+#ifdef DEBUG
+                Serial.print("NAV_PVT flags byte is 0x");
+                if (c < 16) {Serial.print("0");}
+                Serial.println(c, HEX);
+#endif
+                if ((c & 0xc0) == 0x80) { // Is the carrSoln 10 binary (fixed ambiguities)?
+                  digitalWrite(GreenLED, !digitalRead(GreenLED)); // Toggle the green LED
+                }
+                else {
+                  digitalWrite(GreenLED, HIGH); // If the carrSoln is none or floating, leave the green LED on
+                }
+              }
+            }
             ubx_length = ubx_length - 1; // Decrement length by one
             ubx_expected_checksum_A = ubx_expected_checksum_A + c; // Update the expected checksum
             ubx_expected_checksum_B = ubx_expected_checksum_B + ubx_expected_checksum_A;
