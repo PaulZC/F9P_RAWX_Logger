@@ -1,6 +1,7 @@
 // RAWX_Logger_F9P
 
 // Logs RXM-RAWX, RXM-SFRBX and TIM-TM2 data from u-blox ZED_F9P GNSS to SD card
+// Optionally logs NAV_POSLLH and NAV_PVT too (if enabled - see lines 189 and 190)
 
 // Changes to a new log file every INTERVAL minutes
 
@@ -24,7 +25,7 @@ const int dwell = 300;
 // Ensure the card is formatted as FAT32.
 
 // Send serial debug messages
-#define DEBUG // Comment this line out to disable debug messages
+//#define DEBUG // Comment this line out to disable debug messages
 
 // Connect a normally-open push-to-close switch between swPin and GND.
 // Press it to stop logging and close the log file.
@@ -141,59 +142,25 @@ int ubx_expected_checksum_B = 0;
 // Set UART1 to 230400 Baud
 // UBX-CFG-VALSET message with a key ID of 0x40520001 (CFG-UART1-BAUDRATE) and a value of 0x00038400 (230400 decimal)
 static const uint8_t setUART1BAUD[] = { 0xb5, 0x62,  0x06, 0x8a,  0x0c, 0x00,  0x00, 0x01, 0x00, 0x00,  0x01, 0x00, 0x52, 0x40,  0x00, 0x84, 0x03, 0x00 };
-static const int len_setUART1BAUD = 18;
 
 // Disable I2C Interface
 // UBX-CFG-VALSET message with a key ID of 0x10510003 (CFG-I2C-ENABLED) and a value of 0
 static const uint8_t setI2Coff[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x03, 0x00, 0x51, 0x10,  0x00 };
-static const int len_setI2Coff = 15;
 
 // Disable UART2 Interface
 // UBX-CFG-VALSET message with a key ID of 0x10530005 (CFG-UART2-ENABLED) and a value of 0
 static const uint8_t setUART2off[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x05, 0x00, 0x53, 0x10,  0x00 };
-static const int len_setUART2off = 15;
 
 // Disable USB Interface
 // UBX-CFG-VALSET message with a key ID of 0x10650001 (CFG-USB-ENABLED) and a value of 0
 static const uint8_t setUSBoff[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x01, 0x00, 0x65, 0x10,  0x00 };
-static const int len_setUSBoff = 15;
-
-/*
-// Disable the RXM_RAWX, RXM_SFRBX and TIM_TM2 binary messages
-// UBX-CFG-VALSET message with key IDs of:
-// 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
-// 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
-// 0x20910179 (CFG-MSGOUT-UBX_TIM_TM2_UART1)
-// and values (rates) of zero:
-static const uint8_t setRAWXoff[] = {
-  0xb5, 0x62,  0x06, 0x8a,  0x13, 0x00,
-  0x00, 0x01, 0x00, 0x00,
-  0xa5, 0x02, 0x91, 0x20,  0x00,
-  0x32, 0x02, 0x91, 0x20,  0x00,
-  0x79, 0x01, 0x91, 0x20,  0x00 };
-static const int len_setRAWXoff = 25;
-
-// Enable the RXM_RAWX, RXM_SFRBX and TIM_TM2 binary messages in RAM
-// UBX-CFG-VALSET message with key IDs of:
-// 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
-// 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
-// 0x20910179 (CFG-MSGOUT-UBX_TIM_TM2_UART1)
-// and values (rates) of 1:
-static const uint8_t setRAWXon[] = {
-  0xb5, 0x62,  0x06, 0x8a,  0x13, 0x00,
-  0x00, 0x01, 0x00, 0x00,
-  0xa5, 0x02, 0x91, 0x20,  0x01,
-  0x32, 0x02, 0x91, 0x20,  0x01,
-  0x79, 0x01, 0x91, 0x20,  0x01 };
-static const int len_setRAWXon = 25;
-*/
 
 // Disable the RXM_RAWX, RXM_SFRBX, TIM_TM2, NAV_POSLLH and NAV_PVT binary messages
 // UBX-CFG-VALSET message with key IDs of:
 // 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
 // 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
 // 0x20910179 (CFG-MSGOUT-UBX_TIM_TM2_UART1)
-// 0x2091002a (CFG-MSGOUT-UBX_NAV_ POSLLH_UART1)
+// 0x2091002a (CFG-MSGOUT-UBX_NAV_POSLLH_UART1)
 // 0x20910007 (CFG-MSGOUT-UBX_NAV_PVT_UART1)
 // and values (rates) of zero:
 static const uint8_t setRAWXoff[] = {
@@ -204,7 +171,6 @@ static const uint8_t setRAWXoff[] = {
   0x79, 0x01, 0x91, 0x20,  0x00,
   0x2a, 0x00, 0x91, 0x20,  0x00,
   0x07, 0x00, 0x91, 0x20,  0x00 };
-static const int len_setRAWXoff = 35;
 
 // Enable the RXM_RAWX, RXM_SFRBX, TIM_TM2, NAV_POSLLH and NAV_PVT binary messages in RAM
 // UBX-CFG-VALSET message with key IDs of:
@@ -222,7 +188,6 @@ static const uint8_t setRAWXon[] = {
   0x79, 0x01, 0x91, 0x20,  0x01,
   0x2a, 0x00, 0x91, 0x20,  0x01,   // Change the 0x01 to 0x00 to leave NAV_POSLLH disabled
   0x07, 0x00, 0x91, 0x20,  0x01 }; // Change the 0x01 to 0x00 to leave NAV_PVT disabled
-static const int len_setRAWXon = 35;
 
 // Enable the NMEA GGA and RMC messages and disable the GLL, GSA, GSV, VTG, and TXT(INF) messages
 // UBX-CFG-VALSET message with key IDs of:
@@ -243,7 +208,6 @@ static const uint8_t setNMEAon[] = {
   0x07, 0x00, 0x92, 0x20,  0x00,
   0xbb, 0x00, 0x91, 0x20,  0x01,
   0xac, 0x00, 0x91, 0x20,  0x01 };
-static const int len_setNMEAon = 45;
 
 // Disable the NMEA GGA and RMC messages
 // UBX-CFG-VALSET message with key IDs of:
@@ -254,12 +218,10 @@ static const uint8_t setNMEAoff[] = {
   0x00, 0x01, 0x00, 0x00,
   0xbb, 0x00, 0x91, 0x20,  0x00,
   0xac, 0x00, 0x91, 0x20,  0x00 };
-static const int len_setNMEAoff = 20;
 
 // Set the Main NMEA Talker ID to "GP"
 // UBX-CFG-VALSET message with a key ID of 0x20930031 (CFG-NMEA-MAINTALKERID) and a value of 1 (GP):
 static const uint8_t setTALKERID[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x31, 0x00, 0x93, 0x20,  0x01 };
-static const int len_setTALKERID = 15;
 
 // Set the measurement rate
 // UBX-CFG-VALSET message with a key ID of 0x30210001 (CFG-RATE-MEAS)
@@ -269,7 +231,6 @@ static const uint8_t setRATE_5Hz[]  = { 0xb5, 0x62,  0x06, 0x8a,  0x0a, 0x00,  0
 static const uint8_t setRATE_4Hz[]  = { 0xb5, 0x62,  0x06, 0x8a,  0x0a, 0x00,  0x00, 0x01, 0x00, 0x00,  0x01, 0x00, 0x21, 0x30,  0xfa, 0x00 };
 static const uint8_t setRATE_2Hz[]  = { 0xb5, 0x62,  0x06, 0x8a,  0x0a, 0x00,  0x00, 0x01, 0x00, 0x00,  0x01, 0x00, 0x21, 0x30,  0xf4, 0x01 };
 static const uint8_t setRATE_1Hz[]  = { 0xb5, 0x62,  0x06, 0x8a,  0x0a, 0x00,  0x00, 0x01, 0x00, 0x00,  0x01, 0x00, 0x21, 0x30,  0xe8, 0x03 };
-static const int len_setRATE = 16;
 
 // Set the navigation dynamic model
 // UBX-CFG-VALSET message with a key ID of 0x20110021 (CFG-NAVSPG-DYNMODEL)
@@ -282,14 +243,15 @@ static const uint8_t setNAVair1g[]      = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00
 static const uint8_t setNAVair2g[]      = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x21, 0x00, 0x11, 0x20,  0x07 };
 static const uint8_t setNAVair4g[]      = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x21, 0x00, 0x11, 0x20,  0x08 };
 static const uint8_t setNAVwrist[]      = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x21, 0x00, 0x11, 0x20,  0x09 };
-static const int len_setNAV = 15;
 
 // Send message in u-blox UBX format
 // Calculates and appends the two checksum bytes
 // Doesn't add the 0xb5 and 0x62 sync chars (these need to be included at the start of the message)
-void sendUBX(const uint8_t *message, const int len) {
+// Extracts the message length from bytes 4 and 5
+void sendUBX(const uint8_t *message) {
   int csum1 = 0; // Checksum bytes
   int csum2 = 0;
+  int len = message[4] + (message[5] * 256) + 6; // Calculate the length
 #ifdef DEBUG
     Serial.print("Sending UBX packet: 0x");
 #endif
@@ -447,54 +409,54 @@ void setup()
   // 38400 is the default baud rate for u-blox F9P
   GPS.begin(38400);
   // Change the ZED-F9P UART Baud rate
-  sendUBX(setUART1BAUD, len_setUART1BAUD); // Set ZED-F9P UART1 baud rate to 230400
+  sendUBX(setUART1BAUD); // Set ZED-F9P UART1 baud rate to 230400
   // Allow time for Baud rate change
   delay(1100);
   // Restart serial communications
   GPS.begin(230400); // Restart Serial1 at 230400 baud
 
-/*
-  // Disable the I2C, UART2 and USB interfaces
-  // (This must make the ZED-F9P more efficient?!)
-  sendUBX(setI2Coff, len_setI2Coff);
-  delay(100);
-  sendUBX(setUART2off, len_setUART2off);
-  delay(100);
-  sendUBX(setUSBoff, len_setUSBoff);
-  delay(100);
-*/
+
+//  // Disable the I2C, UART2 and USB interfaces
+//  // (This must make the ZED-F9P more efficient?!)
+//  sendUBX(setI2Coff);
+//  delay(100);
+//  sendUBX(setUART2off);
+//  delay(100);
+//  sendUBX(setUSBoff);
+//  delay(100);
+
 
   // Disable RAWX messages
-  sendUBX(setRAWXoff, len_setRAWXoff);
+  sendUBX(setRAWXoff);
   delay(100);
   
   // Enable NMEA messages GGA and RMC; disable the others
-  sendUBX(setNMEAon, len_setNMEAon);
+  sendUBX(setNMEAon);
   delay(100); // Wait
 
   // Set NMEA TALKERID to GP
-  sendUBX(setTALKERID, len_setTALKERID);
+  sendUBX(setTALKERID);
   delay(100);
 
   // Set Navigation/Measurement Rate to 1Hz
-  sendUBX(setRATE_1Hz, len_setRATE);
+  sendUBX(setRATE_1Hz);
   delay(100);
 
   // Check the modePin and set the navigation dynamic model
   if (digitalRead(modePin) == LOW) {
-    sendUBX(setNAVstationary, len_setNAV); // Set Static Navigation Mode (use this for the Base Logger)
+    sendUBX(setNAVstationary); // Set Static Navigation Mode (use this for the Base Logger)
   }
   else {
     base_mode = false; // Clear base_mode flag
     // Select one mode for the mobile Rover Logger
-    //sendUBX(setNAVportable, len_setNAV); // Set Portable Navigation Mode
-    //sendUBX(setNAVpedestrian, len_setNAV); // Set Pedestrian Navigation Mode
-    //sendUBX(setNAVautomotive, len_setNAV); // Set Automotive Navigation Mode
-    //sendUBX(setNAVsea, len_setNAV); // Set Sea Navigation Mode
-    sendUBX(setNAVair1g, len_setNAV); // Set Airborne <1G Navigation Mode
-    //sendUBX(setNAVair2g, len_setNAV); // Set Airborne <2G Navigation Mode
-    //sendUBX(setNAVair4g, len_setNAV); // Set Airborne <4G Navigation Mode
-    //sendUBX(setNAVwrist, len_setNAV); // Set Wrist Navigation Mode
+    //sendUBX(setNAVportable); // Set Portable Navigation Mode
+    //sendUBX(setNAVpedestrian); // Set Pedestrian Navigation Mode
+    //sendUBX(setNAVautomotive); // Set Automotive Navigation Mode
+    //sendUBX(setNAVsea); // Set Sea Navigation Mode
+    sendUBX(setNAVair1g); // Set Airborne <1G Navigation Mode
+    //sendUBX(setNAVair2g); // Set Airborne <2G Navigation Mode
+    //sendUBX(setNAVair4g); // Set Airborne <4G Navigation Mode
+    //sendUBX(setNAVwrist); // Set Wrist Navigation Mode
   }
   delay(1100);
   
@@ -600,16 +562,16 @@ void loop() // run over and over again
           }
 
           // Disable the GPGGA and GPRMC messages
-          sendUBX(setNMEAoff, len_setNMEAoff);
+          sendUBX(setNMEAoff);
           delay(100);
 
           // Set the RAWX measurement rate
-          //sendUBX(setRATE_20Hz, len_setRATE); // Set Navigation/Measurement Rate to 20 Hz
-          //sendUBX(setRATE_10Hz, len_setRATE); // Set Navigation/Measurement Rate to 10 Hz
-          //sendUBX(setRATE_5Hz, len_setRATE); // Set Navigation/Measurement Rate to 5 Hz
-          //sendUBX(setRATE_4Hz, len_setRATE); // Set Navigation/Measurement Rate to 4 Hz
-          //sendUBX(setRATE_2Hz, len_setRATE); // Set Navigation/Measurement Rate to 2 Hz
-          sendUBX(setRATE_1Hz, len_setRATE); // Set Navigation/Measurement Rate to 1 Hz
+          //sendUBX(setRATE_20Hz); // Set Navigation/Measurement Rate to 20 Hz
+          //sendUBX(setRATE_10Hz); // Set Navigation/Measurement Rate to 10 Hz
+          //sendUBX(setRATE_5Hz); // Set Navigation/Measurement Rate to 5 Hz
+          //sendUBX(setRATE_4Hz); // Set Navigation/Measurement Rate to 4 Hz
+          //sendUBX(setRATE_2Hz); // Set Navigation/Measurement Rate to 2 Hz
+          sendUBX(setRATE_1Hz); // Set Navigation/Measurement Rate to 1 Hz
           
           delay(1100); // Wait
           
@@ -627,7 +589,7 @@ void loop() // run over and over again
 
     // (Re)Start RAWX messages
     case start_rawx: {
-      sendUBX(setRAWXon, len_setRAWXon); // (Re)Start the RXM_RAWX, RXM_SFRBX and TIM_TM2 messages
+      sendUBX(setRAWXon); // (Re)Start the RXM_RAWX, RXM_SFRBX and TIM_TM2 messages
 
       bufferPointer = 0; // (Re)initialise bufferPointer
 
@@ -859,6 +821,16 @@ void loop() // run over and over again
                 Serial.print("NAV_PVT flags byte is 0x");
                 if (c < 16) {Serial.print("0");}
                 Serial.println(c, HEX);
+                Serial.print("NAV_PVT carrSoln: ");
+                if ((c & 0xc0) == 0x00) {
+                  Serial.println("no carrier phase range solution");
+                }
+                else if ((c & 0xc0) == 0x40) {
+                  Serial.println("carrier phase range solution with floating ambiguities");
+                }
+                else if ((c & 0xc0) == 0x80) {
+                  Serial.println("carrier phase range solution with fixed ambiguities");
+                }
 #endif
                 if ((c & 0xc0) == 0x80) { // Is the carrSoln 10 binary (fixed ambiguities)?
                   digitalWrite(GreenLED, !digitalRead(GreenLED)); // Toggle the green LED
@@ -988,7 +960,7 @@ void loop() // run over and over again
 
     // Disable RAWX messages, save any residual data and close the file for the last time
     case close_file: {
-      sendUBX(setRAWXoff, len_setRAWXoff); // Disable RAWX messages
+      sendUBX(setRAWXoff); // Disable RAWX messages
       int waitcount = 0;
       // leave 10 bytes in the serial buffer as this _should_ be the message acknowledgement
       while (waitcount < dwell) { // Wait for residual data
@@ -1145,7 +1117,7 @@ void loop() // run over and over again
     // RAWX data lost sync so disable RAWX messages, save any residual data, close the file, open another and restart RAWX messages
     // Don't update the next RTC alarm - leave it as it is
     case restart_file: {
-      sendUBX(setRAWXoff, len_setRAWXoff); // Disable RAWX messages
+      sendUBX(setRAWXoff); // Disable RAWX messages
       int waitcount = 0;
       // leave 10 bytes in the serial buffer as this _should_ be the message acknowledgement
       while (waitcount < dwell) { // Wait for residual data
