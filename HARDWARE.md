@@ -31,7 +31,8 @@ For the RAWX_Logger we will only be using the UART interface (the Arduino code d
 these to remain enabled).
 
 This project only logs RAWX messages which can be post-processed (PPK) using [rtklibexplorer's](https://rtklibexplorer.wordpress.com/) version of
-[RTKLIB](http://rtkexplorer.com/downloads/rtklib-code/); it does not make use of the F9P's RTK features.
+[RTKLIB](http://rtkexplorer.com/downloads/rtklib-code/); it does not currently make use of the F9P's RTK features. However, you will find UART2, SURVEY_IN and RTCM
+configuration messages defined in the code which will be useful if you do want to try RTK.
 
 Like the Adalogger, there are many ways to hook up the F9P board. Again, the simplest is to use header pins and jumper wires.
 

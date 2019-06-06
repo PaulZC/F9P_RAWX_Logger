@@ -1,7 +1,7 @@
 // RAWX_Logger_F9P
 
 // Logs RXM-RAWX, RXM-SFRBX and TIM-TM2 data from u-blox ZED_F9P GNSS to SD card
-// Optionally logs NAV_POSLLH and NAV_PVT too (if enabled - see lines 189 and 190)
+// Optionally logs NAV_POSLLH and NAV_PVT too (if enabled - see lines 190 and 191)
 
 // Changes to a new log file every INTERVAL minutes
 
@@ -134,9 +134,10 @@ int ubx_expected_checksum_A = 0;
 int ubx_expected_checksum_B = 0;
 
 // Definitions for u-blox F9P UBX-format (binary) messages
-// The message definitions need to include the 0xB5 and 0x62 sync chars 
+// Each message begins with: <Sync_Char_1 0xb5>, <Sync_Char_2 0x62>, <Class>, <ID>, <Length_LSB>, <Length_MSB>
+// The message definitions need to include the 0xb5 and 0x62 sync chars 
+// Each message needs to have the payload length defined (Length_LSB + (256 * Length_MSB))
 // The message definitions don't contain the checksum bytes - these are calculated and appended by sendUBX
-// Each message needs to have a length defined
 // The UBX-CFG-VALSET messages are only applied to RAM (not battery-backed memory or flash)
 
 // Set UART1 to 230400 Baud
@@ -186,8 +187,8 @@ static const uint8_t setRAWXon[] = {
   0xa5, 0x02, 0x91, 0x20,  0x01,
   0x32, 0x02, 0x91, 0x20,  0x01,
   0x79, 0x01, 0x91, 0x20,  0x01,
-  0x2a, 0x00, 0x91, 0x20,  0x01,   // Change the 0x01 to 0x00 to leave NAV_POSLLH disabled
-  0x07, 0x00, 0x91, 0x20,  0x01 }; // Change the 0x01 to 0x00 to leave NAV_PVT disabled
+  0x2a, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
+  0x07, 0x00, 0x91, 0x20,  0x01 }; // Change the last byte from 0x01 to 0x00 to leave NAV_PVT disabled
 
 // Enable the NMEA GGA and RMC messages and disable the GLL, GSA, GSV, VTG, and TXT(INF) messages
 // UBX-CFG-VALSET message with key IDs of:
@@ -243,6 +244,64 @@ static const uint8_t setNAVair1g[]      = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00
 static const uint8_t setNAVair2g[]      = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x21, 0x00, 0x11, 0x20,  0x07 };
 static const uint8_t setNAVair4g[]      = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x21, 0x00, 0x11, 0x20,  0x08 };
 static const uint8_t setNAVwrist[]      = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x21, 0x00, 0x11, 0x20,  0x09 };
+
+// The following messages may be useful for RTK
+
+// Set UART2 to 230400 Baud
+// UBX-CFG-VALSET message with a key ID of 0x40530001 (CFG-UART2-BAUDRATE) and a value of 0x00038400 (230400 decimal)
+static const uint8_t setUART2BAUD_230400[] = { 0xb5, 0x62,  0x06, 0x8a,  0x0c, 0x00,  0x00, 0x01, 0x00, 0x00,  0x01, 0x00, 0x53, 0x40,  0x00, 0x84, 0x03, 0x00 };
+
+// Set UART2 to 115200 Baud
+// UBX-CFG-VALSET message with a key ID of 0x40530001 (CFG-UART2-BAUDRATE) and a value of 0x0001c200 (115200 decimal)
+static const uint8_t setUART2BAUD_115200[] = { 0xb5, 0x62,  0x06, 0x8a,  0x0c, 0x00,  0x00, 0x01, 0x00, 0x00,  0x01, 0x00, 0x53, 0x40,  0x00, 0xc2, 0x01, 0x00 };
+
+// Set Survey_In mode
+// UBX-CFG-VALSET message with a key IDs and values of:
+// 0x20030001 (CFG-TMODE-MODE) and a value of 1
+// 0x40030011 (CFG-TMODE-SVIN_ACC_LIMIT) and a value of 0x0000c350 (50000 decimal = 5 m)
+// 0x40030010 (CFG-TMODE-SVIN_MIN_DUR) and a value of 0x0000003c (60 decimal = 1 min)
+static const uint8_t setSurveyIn[] = {
+  0xb5, 0x62,  0x06, 0x8a,  0x19, 0x00,
+  0x00, 0x01, 0x00, 0x00,
+  0x01, 0x00, 0x03, 0x20,  0x01,
+  0x11, 0x00, 0x03, 0x40,  0x50, 0xc3, 0x00, 0x00,
+  0x10, 0x00, 0x03, 0x40,  0x3c, 0x00, 0x00, 0x00 };
+
+// Enable RTCM message output on UART2
+// UBX-CFG-VALSET message with the following key IDs and values of 1:
+// 0x209102bf (CFG-MSGOUT-RTCM_3X_TYPE1005_UART2)
+// 0x209102ce (CFG-MSGOUT-RTCM_3X_TYPE1077_UART2)
+// 0x209102de (CFG-MSGOUT-RTCM_3X_TYPE1087_UART2)
+// 0x209102d8 (CFG-MSGOUT-RTCM_3X_TYPE1127_UART2)
+// 0x2091031a (CFG-MSGOUT-RTCM_3X_TYPE1097_UART2)
+// 0x20910305 (CFG-MSGOUT-RTCM_3X_TYPE1230_UART2)
+static const uint8_t setRTCMon[] = {
+  0xb5, 0x62,  0x06, 0x8a,  0x22, 0x00,
+  0x00, 0x01, 0x00, 0x00,
+  0xbf, 0x02, 0x91, 0x20,  0x01,
+  0xce, 0x02, 0x91, 0x20,  0x01,
+  0xde, 0x02, 0x91, 0x20,  0x01,
+  0xd8, 0x02, 0x91, 0x20,  0x01,
+  0x1a, 0x03, 0x91, 0x20,  0x01,
+  0x05, 0x03, 0x91, 0x20,  0x01 };
+
+// Disable RTCM message output on UART2
+// UBX-CFG-VALSET message with the following key IDs and values of 0:
+// 0x209102bf (CFG-MSGOUT-RTCM_3X_TYPE1005_UART2)
+// 0x209102ce (CFG-MSGOUT-RTCM_3X_TYPE1077_UART2)
+// 0x209102de (CFG-MSGOUT-RTCM_3X_TYPE1087_UART2)
+// 0x209102d8 (CFG-MSGOUT-RTCM_3X_TYPE1127_UART2)
+// 0x2091031a (CFG-MSGOUT-RTCM_3X_TYPE1097_UART2)
+// 0x20910305 (CFG-MSGOUT-RTCM_3X_TYPE1230_UART2)
+static const uint8_t setRTCMoff[] = {
+  0xb5, 0x62,  0x06, 0x8a,  0x22, 0x00,
+  0x00, 0x01, 0x00, 0x00,
+  0xbf, 0x02, 0x91, 0x20,  0x00,
+  0xce, 0x02, 0x91, 0x20,  0x00,
+  0xde, 0x02, 0x91, 0x20,  0x00,
+  0xd8, 0x02, 0x91, 0x20,  0x00,
+  0x1a, 0x03, 0x91, 0x20,  0x00,
+  0x05, 0x03, 0x91, 0x20,  0x00 };
 
 // Send message in u-blox UBX format
 // Calculates and appends the two checksum bytes
@@ -417,7 +476,6 @@ void setup()
 
 
 //  // Disable the I2C, UART2 and USB interfaces
-//  // (This must make the ZED-F9P more efficient?!)
 //  sendUBX(setI2Coff);
 //  delay(100);
 //  sendUBX(setUART2off);
@@ -444,7 +502,7 @@ void setup()
 
   // Check the modePin and set the navigation dynamic model
   if (digitalRead(modePin) == LOW) {
-    sendUBX(setNAVstationary); // Set Static Navigation Mode (use this for the Base Logger)
+    sendUBX(setNAVstationary); // Set Static Navigation Mode (use this for the Base Logger)    
   }
   else {
     base_mode = false; // Clear base_mode flag
@@ -569,9 +627,9 @@ void loop() // run over and over again
           //sendUBX(setRATE_20Hz); // Set Navigation/Measurement Rate to 20 Hz
           //sendUBX(setRATE_10Hz); // Set Navigation/Measurement Rate to 10 Hz
           //sendUBX(setRATE_5Hz); // Set Navigation/Measurement Rate to 5 Hz
-          //sendUBX(setRATE_4Hz); // Set Navigation/Measurement Rate to 4 Hz
+          sendUBX(setRATE_4Hz); // Set Navigation/Measurement Rate to 4 Hz
           //sendUBX(setRATE_2Hz); // Set Navigation/Measurement Rate to 2 Hz
-          sendUBX(setRATE_1Hz); // Set Navigation/Measurement Rate to 1 Hz
+          //sendUBX(setRATE_1Hz); // Set Navigation/Measurement Rate to 1 Hz
           
           delay(1100); // Wait
           
@@ -818,18 +876,15 @@ void loop() // run over and over again
             if ((ubx_class == 0x01) and (ubx_ID == 0x07)) { // Is this a NAV_PVT message (class 0x01 ID 0x07)?
               if (ubx_length == 71) { // Is this byte offset 21? (ubx_length will be 92 for byte offset 0, so will be 71 for byte offset 21)
 #ifdef DEBUG
-                Serial.print("NAV_PVT flags byte is 0x");
-                if (c < 16) {Serial.print("0");}
-                Serial.println(c, HEX);
                 Serial.print("NAV_PVT carrSoln: ");
                 if ((c & 0xc0) == 0x00) {
-                  Serial.println("no carrier phase range solution");
+                  Serial.println("none");
                 }
                 else if ((c & 0xc0) == 0x40) {
-                  Serial.println("carrier phase range solution with floating ambiguities");
+                  Serial.println("floating");
                 }
                 else if ((c & 0xc0) == 0x80) {
-                  Serial.println("carrier phase range solution with fixed ambiguities");
+                  Serial.println("fixed");
                 }
 #endif
                 if ((c & 0xc0) == 0x80) { // Is the carrSoln 10 binary (fixed ambiguities)?
