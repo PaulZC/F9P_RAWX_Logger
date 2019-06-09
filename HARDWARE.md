@@ -70,6 +70,10 @@ Connect the Adalogger A0 pin to GND to put the logger into base mode. Leave A0 f
 
 ![Extras](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/Extras.JPG)
 
+The logger also supports Survey_In mode where the ZED-F9P calculates its own position and then generates RTCM 3 correction messages on the UART2 TX2 pin.
+If you want to use Survey_In, connect pin A3 to GND. You will need to have A0 connected to ground too. The green LED will flash (or the NeoPixel will turn magenta)
+when the ZED-F9P has established a TIME solution. The RTCM messages are output at 115200 Baud, which is the default Baud rate of the SparkFun Bluetooth Mate.
+
 ## Stopping the Logger
 
 If you are powering the logger from a LiPo battery, the logger monitors the LiPo battery voltage and will automatically close the log file when the battery voltage starts to fall.
@@ -77,10 +81,10 @@ If you are powering the logger from a LiPo battery, the logger monitors the LiPo
 You can connect a "stop logging" push switch between the Adalogger A1 pin and GND. This switch is optional but pushing it will safely close the RAWX log file so you can
 unplug the power. If you unplug both USB and LiPo power while the logger is still logging, the RAWX log file will not get closed and you will lose your data!
 
-## Waypoint / Timestamp
+## Waypoint / Timestamp Event
 
 You can connect a push switch between GND and the SparkFun INT pin. Pushing it will generate a TIM_TM2 message which will get logged with the RAWX data.
-[RTKLIB](https://rtklibexplorer.wordpress.com/2018/10/26/event-logging-with-rtklib-and-the-u-blox-m8t-receiver/) can be used to export these.
+[RTKLIB](https://rtklibexplorer.wordpress.com/2018/10/26/event-logging-with-rtklib-and-the-u-blox-m8t-receiver/) can be used to export these events.
 
 Instead of a switch, you can connect the INT pin to a 3.3V logic signal from (e.g.) your UAV camera trigger. (The signal must be between 0V and 3.3V.
 Higher voltages will cause permanent damage to the ZED-F9P!)

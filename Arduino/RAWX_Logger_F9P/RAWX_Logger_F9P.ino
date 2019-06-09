@@ -1,7 +1,8 @@
 // RAWX_Logger_F9P
 
 // Logs RXM-RAWX, RXM-SFRBX and TIM-TM2 data from u-blox ZED_F9P GNSS to SD card
-// Optionally logs NAV_POSLLH and NAV_PVT too (if enabled - see lines 190 and 191)
+// Also logs NAV-STATUS messages for Survey_In mode
+// Optionally logs NAV_POSLLH and NAV_PVT too (if enabled - see lines 220 and 221)
 
 // Changes to a new log file every INTERVAL minutes
 
@@ -27,23 +28,44 @@ const int dwell = 300;
 // Send serial debug messages
 //#define DEBUG // Comment this line out to disable debug messages
 
+// Connect modePin to GND to select base mode. Leave open for rover mode.
+#define modePin 14 // A0 / Digital Pin 14
+
 // Connect a normally-open push-to-close switch between swPin and GND.
 // Press it to stop logging and close the log file.
 #define swPin 15 // A1 / Digital Pin 15 (0.2" away from the GND pin on the Adalogger)
 
-// Connect modePin to GND to select base mode. Leave open for rover mode.
-#define modePin 14 // A0 / Digital Pin 14
+// Pin A2 (Digital Pin 16) is reserved for the ZED-F9P EXTINT signal
+// The code uses this an an interrupt to set the NeoPixel to white
+#define ExtIntPin 16 // A2 / Digital Pin 16
 
-#ifdef DEBUG
-// Use A3 / Digital Pin 17 to show how much time is spent in the TC3 interrupt service routine
-#define pinISR 17
-#endif
+// Connect A3 (Digital Pin 17) to GND to select SURVEY_IN mode when in BASE mode
+#define SurveyInPin 17 // A3 / Digital Pin 17
 
 // LEDs
+
+//#define NoLED // Uncomment this line to completely disable the LEDs
+//#define NoLogLED // Uncomment this line to disable the LEDs during logging only
+
+// NeoPixel Settings
+//#define NeoPixel // Uncomment this line to enable a NeoPixel on the same pin as RedLED
+
 // The red LED flashes during SD card writes
 #define RedLED 13 // The red LED on the Adalogger is connected to Digital Pin 13
 // The green LED indicates that the GNSS has established a fix 
 #define GreenLED 8 // The green LED on the Adalogger is connected to Digital Pin 8
+
+// NeoPixel
+#ifdef NeoPixel
+#include <Adafruit_NeoPixel.h> // Support for the WB2812B
+#define swap_red_green // Uncomment this line if your WB2812B has red and green reversed
+#ifdef swap_red_green
+  Adafruit_NeoPixel pixels = Adafruit_NeoPixel(1, RedLED, NEO_GRB + NEO_KHZ800); // GRB WB2812B
+#else
+  Adafruit_NeoPixel pixels = Adafruit_NeoPixel(1, RedLED, NEO_RGB + NEO_KHZ800); // RGB WB2812B
+#endif
+#define LED_Brightness 32 // 0 - 255 for WB2812B
+#endif
 
 // Include the Adafruit GPS Library
 // https://github.com/adafruit/Adafruit_GPS
@@ -74,6 +96,11 @@ bool base_mode = true; // Flag to indicate if the code is in base or rover mode
 char rawx_filename[] = "20000000/b_000000.ubx"; // the b will be replaced by an r if required
 char dirname[] = "20000000";
 long bytes_written = 0;
+
+bool survey_in_mode = false; // Flag to indicate if the code is in survey_in mode
+
+// Timer to indicate if an ExtInt has been received
+volatile unsigned long ExtIntTimer; // Load this with millis plus 1000 to show when the ExtInt LED should be switched off
 
 // Define packet size, buffer and buffer pointer for SD card writes
 const size_t SDpacket = 512;
@@ -156,39 +183,43 @@ static const uint8_t setUART2off[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x
 // UBX-CFG-VALSET message with a key ID of 0x10650001 (CFG-USB-ENABLED) and a value of 0
 static const uint8_t setUSBoff[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x01, 0x00, 0x65, 0x10,  0x00 };
 
-// Disable the RXM_RAWX, RXM_SFRBX, TIM_TM2, NAV_POSLLH and NAV_PVT binary messages
+// Disable the RXM_RAWX, RXM_SFRBX, TIM_TM2, NAV_POSLLH, NAV_PVT and NAV_STATUS binary messages in RAM
 // UBX-CFG-VALSET message with key IDs of:
 // 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
 // 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
 // 0x20910179 (CFG-MSGOUT-UBX_TIM_TM2_UART1)
 // 0x2091002a (CFG-MSGOUT-UBX_NAV_POSLLH_UART1)
 // 0x20910007 (CFG-MSGOUT-UBX_NAV_PVT_UART1)
+// 0x2091001b (CFG-MSGOUT-UBX_NAV_STATUS_UART1)
 // and values (rates) of zero:
 static const uint8_t setRAWXoff[] = {
-  0xb5, 0x62,  0x06, 0x8a,  0x1d, 0x00,
+  0xb5, 0x62,  0x06, 0x8a,  0x22, 0x00,
   0x00, 0x01, 0x00, 0x00,
   0xa5, 0x02, 0x91, 0x20,  0x00,
   0x32, 0x02, 0x91, 0x20,  0x00,
   0x79, 0x01, 0x91, 0x20,  0x00,
   0x2a, 0x00, 0x91, 0x20,  0x00,
-  0x07, 0x00, 0x91, 0x20,  0x00 };
+  0x07, 0x00, 0x91, 0x20,  0x00,
+  0x1b, 0x00, 0x91, 0x20,  0x00 };
 
-// Enable the RXM_RAWX, RXM_SFRBX, TIM_TM2, NAV_POSLLH and NAV_PVT binary messages in RAM
+// Enable the RXM_RAWX, RXM_SFRBX, TIM_TM2, NAV_POSLLH, NAV_PVT and NAV_STATUS binary messages in RAM
 // UBX-CFG-VALSET message with key IDs of:
 // 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
 // 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
 // 0x20910179 (CFG-MSGOUT-UBX_TIM_TM2_UART1)
 // 0x2091002a (CFG-MSGOUT-UBX_NAV_POSLLH_UART1)
 // 0x20910007 (CFG-MSGOUT-UBX_NAV_PVT_UART1)
+// 0x2091001b (CFG-MSGOUT-UBX_NAV_STATUS_UART1)
 // and values (rates) of 1:
 static const uint8_t setRAWXon[] = {
-  0xb5, 0x62,  0x06, 0x8a,  0x1d, 0x00,
+  0xb5, 0x62,  0x06, 0x8a,  0x22, 0x00,
   0x00, 0x01, 0x00, 0x00,
   0xa5, 0x02, 0x91, 0x20,  0x01,
   0x32, 0x02, 0x91, 0x20,  0x01,
   0x79, 0x01, 0x91, 0x20,  0x01,
-  0x2a, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
-  0x07, 0x00, 0x91, 0x20,  0x01 }; // Change the last byte from 0x01 to 0x00 to leave NAV_PVT disabled
+  0x2a, 0x00, 0x91, 0x20,  0x00,   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
+  0x07, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_PVT disabled
+  0x1b, 0x00, 0x91, 0x20,  0x01 };
 
 // Enable the NMEA GGA and RMC messages and disable the GLL, GSA, GSV, VTG, and TXT(INF) messages
 // UBX-CFG-VALSET message with key IDs of:
@@ -268,28 +299,30 @@ static const uint8_t setSurveyIn[] = {
   0x10, 0x00, 0x03, 0x40,  0x3c, 0x00, 0x00, 0x00 };
 
 // Enable RTCM message output on UART2
-// UBX-CFG-VALSET message with the following key IDs and values of 1:
+// UBX-CFG-VALSET message with the following key IDs
+// Set the value byte to 0x01 to send an RTCM message at RATE_MEAS; set the value to 0x04 to send an RTCM message at 1/4 RATE_MEAS
+// (i.e. assumes you will be logging RAWX data at 4 Hz. Adjust accordingly)
 // 0x209102bf (CFG-MSGOUT-RTCM_3X_TYPE1005_UART2)
 // 0x209102ce (CFG-MSGOUT-RTCM_3X_TYPE1077_UART2)
-// 0x209102de (CFG-MSGOUT-RTCM_3X_TYPE1087_UART2)
+// 0x209102d3 (CFG-MSGOUT-RTCM_3X_TYPE1087_UART2)
 // 0x209102d8 (CFG-MSGOUT-RTCM_3X_TYPE1127_UART2)
 // 0x2091031a (CFG-MSGOUT-RTCM_3X_TYPE1097_UART2)
 // 0x20910305 (CFG-MSGOUT-RTCM_3X_TYPE1230_UART2)
 static const uint8_t setRTCMon[] = {
   0xb5, 0x62,  0x06, 0x8a,  0x22, 0x00,
   0x00, 0x01, 0x00, 0x00,
-  0xbf, 0x02, 0x91, 0x20,  0x01,
-  0xce, 0x02, 0x91, 0x20,  0x01,
-  0xde, 0x02, 0x91, 0x20,  0x01,
-  0xd8, 0x02, 0x91, 0x20,  0x01,
-  0x1a, 0x03, 0x91, 0x20,  0x01,
-  0x05, 0x03, 0x91, 0x20,  0x01 };
+  0xbf, 0x02, 0x91, 0x20,  0x04, // Change the last byte from 0x01 to 0x04 to send an RTCM message at 1/4 RATE_MEAS
+  0xce, 0x02, 0x91, 0x20,  0x04, // Change the last byte from 0x01 to 0x04 to send an RTCM message at 1/4 RATE_MEAS
+  0xd3, 0x02, 0x91, 0x20,  0x04, // Change the last byte from 0x01 to 0x04 to send an RTCM message at 1/4 RATE_MEAS
+  0xd8, 0x02, 0x91, 0x20,  0x04, // Change the last byte from 0x01 to 0x04 to send an RTCM message at 1/4 RATE_MEAS
+  0x1a, 0x03, 0x91, 0x20,  0x04, // Change the last byte from 0x01 to 0x04 to send an RTCM message at 1/4 RATE_MEAS
+  0x05, 0x03, 0x91, 0x20,  0x28 };  // Change the last byte from 0x01 to 0x28 to send an RTCM message at 1/40 RATE_MEAS
 
 // Disable RTCM message output on UART2
 // UBX-CFG-VALSET message with the following key IDs and values of 0:
 // 0x209102bf (CFG-MSGOUT-RTCM_3X_TYPE1005_UART2)
 // 0x209102ce (CFG-MSGOUT-RTCM_3X_TYPE1077_UART2)
-// 0x209102de (CFG-MSGOUT-RTCM_3X_TYPE1087_UART2)
+// 0x209102d3 (CFG-MSGOUT-RTCM_3X_TYPE1087_UART2)
 // 0x209102d8 (CFG-MSGOUT-RTCM_3X_TYPE1127_UART2)
 // 0x2091031a (CFG-MSGOUT-RTCM_3X_TYPE1097_UART2)
 // 0x20910305 (CFG-MSGOUT-RTCM_3X_TYPE1230_UART2)
@@ -298,10 +331,17 @@ static const uint8_t setRTCMoff[] = {
   0x00, 0x01, 0x00, 0x00,
   0xbf, 0x02, 0x91, 0x20,  0x00,
   0xce, 0x02, 0x91, 0x20,  0x00,
-  0xde, 0x02, 0x91, 0x20,  0x00,
+  0xd3, 0x02, 0x91, 0x20,  0x00,
   0xd8, 0x02, 0x91, 0x20,  0x00,
   0x1a, 0x03, 0x91, 0x20,  0x00,
   0x05, 0x03, 0x91, 0x20,  0x00 };
+
+// Enable NMEA messages on UART2 for test purposes
+// UBX-CFG-VALSET message with key ID of 0x10760002 (CFG-UART2OUTPROT-NMEA) and value of 1:
+static const uint8_t setUART2nmea[] = {
+  0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,
+  0x00, 0x01, 0x00, 0x00,
+  0x02, 0x00, 0x76, 0x10,  0x01 };
 
 // Send message in u-blox UBX format
 // Calculates and appends the two checksum bytes
@@ -337,6 +377,11 @@ void sendUBX(const uint8_t *message) {
   if (csum2 < 16) {Serial.print("0");}
   Serial.println((uint8_t)csum2, HEX);
 #endif
+}
+
+// ExtInt interrupt service routine
+void ExtInt() {
+  ExtIntTimer = millis() + 1000; // Set the timer value to 1000 milliseconds from now
 }
 
 // RTC alarm interrupt
@@ -400,12 +445,6 @@ void startTimerInterval(float intervalS) {
 
 // TC3 Interrupt Handler
 void TC3_Handler() {
-  
-#ifdef pinISR
-  // Use A3 / Digital Pin 17 to show how much time is spent in the TC3 interrupt service routine
-  digitalWrite(pinISR, HIGH);
-#endif
-
   TcCount16* TC = (TcCount16*) TC3;
   // If this interrupt is due to the compare register matching the timer count
   // copy any available Serial1 data into SerialBuffer
@@ -417,18 +456,107 @@ void TC3_Handler() {
         available1--;
     }
   }
-  
-#ifdef pinISR
-  digitalWrite(pinISR, LOW);
-#endif
-
 }
+
+// NeoPixel Functions
+// WB2812B blue LED has the highest forward voltage and is slightly dim at 3.3V. The red and green values are adapted accordingly (222 instead of 255).
+
+#ifdef NeoPixel
+
+void LED_off() // Turn NeoPixel off
+{
+  pixels.setPixelColor(0,0,0,0);
+  pixels.show();
+}
+
+void LED_dim_white() // Set LED to dim white
+{
+  pixels.setBrightness(LED_Brightness / 2); // Dim the LED brightness
+  pixels.setPixelColor(0, pixels.Color(222,222,255)); // Set color.
+  pixels.show(); // This sends the updated pixel color to the hardware.
+  pixels.setBrightness(LED_Brightness); // Reset the LED brightness
+}
+
+void LED_dim_blue() // Set LED to dim blue
+{
+  pixels.setBrightness(LED_Brightness / 2); // Dim the LED brightness
+  pixels.setPixelColor(0, pixels.Color(0,0,255)); // Set color.
+  pixels.show(); // This sends the updated pixel color to the hardware.
+  pixels.setBrightness(LED_Brightness); // Reset the LED brightness
+}
+
+void LED_dim_green() // Set LED to dim green
+{
+  pixels.setBrightness(LED_Brightness / 2); // Dim the LED brightness
+  pixels.setPixelColor(0, pixels.Color(0,222,0)); // Set color.
+  pixels.show(); // This sends the updated pixel color to the hardware.
+  pixels.setBrightness(LED_Brightness); // Reset the LED brightness
+}
+
+void LED_dim_cyan() // Set LED to dim cyan
+{
+  pixels.setBrightness(LED_Brightness / 2); // Dim the LED brightness
+  pixels.setPixelColor(0, pixels.Color(0,222,255)); // Set color.
+  pixels.show(); // This sends the updated pixel color to the hardware.
+  pixels.setBrightness(LED_Brightness); // Reset the LED brightness
+}
+
+void LED_white() // Set LED to white
+{
+  pixels.setPixelColor(0, pixels.Color(222,222,255)); // Set color.
+  pixels.show(); // This sends the updated pixel color to the hardware.
+}
+
+void LED_red() // Set LED to red
+{
+  pixels.setPixelColor(0, pixels.Color(222,0,0)); // Set color.
+  pixels.show(); // This sends the updated pixel color to the hardware.
+}
+
+void LED_green() // Set LED to green
+{
+  pixels.setPixelColor(0, pixels.Color(0,222,0)); // Set color.
+  pixels.show(); // This sends the updated pixel color to the hardware.
+}
+
+void LED_blue() // Set LED to blue
+{
+  pixels.setPixelColor(0, pixels.Color(0,0,255)); // Set color.
+  pixels.show(); // This sends the updated pixel color to the hardware.
+}
+
+void LED_cyan() // Set LED to cyan
+{
+  pixels.setPixelColor(0, pixels.Color(0,222,255)); // Set color.
+  pixels.show(); // This sends the updated pixel color to the hardware.
+}
+
+void LED_magenta() // Set LED to magenta
+{
+  pixels.setPixelColor(0, pixels.Color(222,0,255)); // Set color.
+  pixels.show(); // This sends the updated pixel color to the hardware.
+}
+
+#endif
 
 void setup()
 {
+#ifdef NeoPixel
+  // Initialise the NeoPixel
+  pixels.begin(); // This initializes the NeoPixel library.
+  delay(100); // Seems necessary to make the NeoPixel start reliably 
+  pixels.setBrightness(LED_Brightness); // Initialize the LED brightness
+  LED_off(); // Set NeoPixel off
+#ifndef NoLED
+  LED_dim_blue(); // Set NeoPixel to dim blue
+#endif
+#else
   // initialize digital pins RedLED and GreenLED as outputs.
   pinMode(RedLED, OUTPUT); // Red LED
   pinMode(GreenLED, OUTPUT); // Green LED
+  digitalWrite(RedLED, LOW); // Turn Red LED off
+  digitalWrite(GreenLED, LOW); // Turn Green LED off
+#ifndef NoLED
   // flash red and green LEDs on reset
   for (int i=0; i <= 4; i++) {
     digitalWrite(RedLED, HIGH);
@@ -438,18 +566,24 @@ void setup()
     delay(200);
     digitalWrite(GreenLED, LOW);
   }
+#endif
+#endif
 
-  // initialize swPin as an input for the stop switch
-  pinMode(swPin, INPUT_PULLUP);
-
-  // initialize modePin as an input for the mode select
+  // initialize modePin (A0) as an input for the Base/Rover mode select switch
   pinMode(modePin, INPUT_PULLUP);
 
-#ifdef pinISR
-  // Use A3 / Digital Pin 17 to show how much time is spent in the TC3 interrupt service routine
-  pinMode(pinISR, OUTPUT);
-  digitalWrite(pinISR, LOW);
-#endif
+  // initialize swPin (A1) as an input for the stop switch
+  pinMode(swPin, INPUT_PULLUP);
+
+  // initialise ExtIntPin (A2) as an input for the EVENT switch
+  pinMode(ExtIntPin, INPUT_PULLUP);
+  // Attach the interrupt service routine
+  // Interrupt on falling edge of the ExtInt signal
+  attachInterrupt(ExtIntPin, ExtInt, FALLING);
+  ExtIntTimer = millis(); // Initialise the ExtInt LED timer
+
+  // initialise SurveyInPin (A3) as an input for the SURVEY_IN switch
+  pinMode(SurveyInPin, INPUT_PULLUP);
 
   delay(10000); // Allow 10 sec for user to open serial monitor (Comment this line if required)
   //while (!Serial); // OR Wait for user to run python script or open serial monitor (Comment this line as required)
@@ -458,11 +592,25 @@ void setup()
 
   Serial.println("RAWX_Logger_F9P");
   Serial.println("Log GNSS RAWX data to SD card");
+#ifndef NeoPixel
   Serial.println("Green LED = Initial GNSS Fix");
   Serial.println("Red LED Flash = SD Write");
+#else
+  Serial.println("Blue = Init");
+  Serial.println("Dim Cyan = Waiting for GNSS Fix");
+  Serial.println("Cyan = Checking GNSS Fix");
+  Serial.println("Green flicker = SD Write");
+  Serial.println("Magenta + Green flash = TIME fix in Survey_In mode");
+  Serial.println("White = EVENT (ExtInt) detected");
+#endif
   Serial.println("Continuous Red indicates a problem or that logging has been stopped");
-
   Serial.println("Initializing GNSS...");
+
+#ifndef NoLED
+#ifdef NeoPixel
+  LED_blue(); // Set NeoPixel to blue
+#endif
+#endif
 
   // u-blox F9P Init
   // 38400 is the default baud rate for u-blox F9P
@@ -473,16 +621,6 @@ void setup()
   delay(1100);
   // Restart serial communications
   GPS.begin(230400); // Restart Serial1 at 230400 baud
-
-
-//  // Disable the I2C, UART2 and USB interfaces
-//  sendUBX(setI2Coff);
-//  delay(100);
-//  sendUBX(setUART2off);
-//  delay(100);
-//  sendUBX(setUSBoff);
-//  delay(100);
-
 
   // Disable RAWX messages
   sendUBX(setRAWXoff);
@@ -500,12 +638,18 @@ void setup()
   sendUBX(setRATE_1Hz);
   delay(100);
 
+  // Set UART2 Baud rate
+  sendUBX(setUART2BAUD_115200);
+  delay(100);
+
   // Check the modePin and set the navigation dynamic model
   if (digitalRead(modePin) == LOW) {
+    Serial.println("BASE mode selected");
     sendUBX(setNAVstationary); // Set Static Navigation Mode (use this for the Base Logger)    
   }
   else {
     base_mode = false; // Clear base_mode flag
+    Serial.println("ROVER mode selected");
     // Select one mode for the mobile Rover Logger
     //sendUBX(setNAVportable); // Set Portable Navigation Mode
     //sendUBX(setNAVpedestrian); // Set Pedestrian Navigation Mode
@@ -522,8 +666,12 @@ void setup()
 
   Serial.println("GNSS initialized!");
 
+#ifndef NoLED
+#ifndef NeoPixel
   // flash the red LED during SD initialisation
   digitalWrite(RedLED, HIGH);
+#endif
+#endif
 
   // Initialise SD card
   Serial.println("Initializing SD card...");
@@ -531,14 +679,26 @@ void setup()
   if (!sd.begin(cardSelect, SD_SCK_MHZ(50))) {
     Serial.println("Panic!! SD Card Init failed, or not present!");
     Serial.println("Waiting for reset...");
+#ifndef NoLED
+#ifdef NeoPixel
+    LED_red(); // Set NeoPixel to red
+#endif
+#endif
     // don't do anything more:
     while(1);
   }
   Serial.println("SD Card initialized!");
 
+#ifndef NoLED
+#ifdef NeoPixel
+  LED_dim_cyan(); // Set NeoPixel to dim cyan now that the SD card is initialised
+#else
   // turn red LED off
   digitalWrite(RedLED, LOW);
+#endif
+#endif
 
+  Serial.println("Waiting for GNSS fix...");
 }
 
 void loop() // run over and over again
@@ -588,15 +748,28 @@ void loop() // run over and over again
 #endif
       
         // turn green LED on to indicate GNSS fix
+        // or set NeoPixel to cyan
         if (GPS.fix) {
+#ifndef NoLED
+#ifdef NeoPixel
+          LED_cyan(); // Set NeoPixel to cyan
+#else
           digitalWrite(GreenLED, HIGH);
+#endif
+#endif
           // increment valfix and cap at maxvalfix
           // don't do anything fancy in terms of decrementing valfix as we want to keep logging even if the fix is lost
           valfix += 1;
           if (valfix > maxvalfix) valfix = maxvalfix;
         }
         else {
-          digitalWrite(GreenLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+          LED_dim_cyan(); // Set NeoPixel to dim cyan
+#else
+          digitalWrite(GreenLED, LOW); // Turn green LED off
+#endif
+#endif
         }
   
         if (valfix == maxvalfix) { // wait until we have enough valid fixes
@@ -632,6 +805,19 @@ void loop() // run over and over again
           //sendUBX(setRATE_1Hz); // Set Navigation/Measurement Rate to 1 Hz
           
           delay(1100); // Wait
+
+          // If we are in BASE mode, check the SURVEY_IN pin
+          if (base_mode == true) {
+            if (digitalRead(SurveyInPin) == LOW) {
+              // We are in BASE mode and the SURVEY_IN pin is low so send the extra UBX messages:
+              Serial.println("SURVEY_IN mode selected");
+              survey_in_mode = true; // Set the survey_in_mode flag true
+              sendUBX(setRTCMon); // Enable the RTCM messages on UART2
+              delay(1100);
+              sendUBX(setSurveyIn); // Enable SURVEY_IN mode
+              delay(1100);
+            }
+          }
           
           while(Serial1.available()){Serial1.read();} // Flush RX buffer to clear UBX acknowledgements
 
@@ -714,8 +900,25 @@ void loop() // run over and over again
       dirname[6] = dayT;
       dirname[7] = dayU;
 
+
       // flash red LED to indicate SD write (leave on if an error occurs)
-      digitalWrite(RedLED, HIGH);
+      // or flash NeoPixel green
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+      LED_green(); // Set the NeoPixel to green
+#else
+      LED_off(); // Turn NeoPixel off if NoLogLED
+#endif
+#else
+#ifndef NoLogLED
+      digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#else
+      digitalWrite(RedLED, LOW); // Turn the red LED off for NoLogLED
+      digitalWrite(GreenLED, LOW); // Turn the green LED off for NoLogLED
+#endif
+#endif
+#endif
 
       // try to create subdirectory (even if it exists already)
       sd.mkdir(dirname);
@@ -729,6 +932,13 @@ void loop() // run over and over again
       else {
         Serial.println("Panic!! Error opening RAWX file!");
         Serial.println("Waiting for reset...");
+#ifndef NoLED
+#ifdef NeoPixel
+      LED_red(); // Set the NeoPixel to red to indicate a problem
+#else
+      digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate a problem
+#endif
+#endif
         // don't do anything more:
         while(1);
       }
@@ -742,7 +952,17 @@ void loop() // run over and over again
       rawx_dataFile.timestamp(T_CREATE, (RTCyear+2000), RTCmonth, RTCday, RTChours, RTCminutes, RTCseconds);
 #endif
 
+      // Now that SD write is complete
+      // Turn the Red LED off or set NeoPixel to dim green
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+      LED_dim_green();
+#endif
+#else
       digitalWrite(RedLED, LOW); // turn red LED off
+#endif
+#endif
 
       bytes_written = 0; // Clear bytes_written
 
@@ -761,11 +981,43 @@ void loop() // run over and over again
         bufferPointer++;
         if (bufferPointer == SDpacket) {
           bufferPointer = 0;
-          digitalWrite(RedLED, HIGH); // flash red LED
+          // Flash the red LED to indicate an SD write
+          // or flash the NeoPixel green
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+          if (millis() < ExtIntTimer) {
+            LED_white(); // Set the NeoPixel to white to indicate an ExtInt
+          }
+          else {
+            LED_green(); // Set the NeoPixel to green
+          }
+#endif
+#else
+#ifndef NoLogLED
+          digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#endif
+#endif
+#endif
           numBytes = rawx_dataFile.write(&serBuffer, SDpacket);
           //rawx_dataFile.sync(); // Sync the file system
           bytes_written += SDpacket;
-          digitalWrite(RedLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+          if (millis() < ExtIntTimer) {
+            LED_white(); // Set the NeoPixel to white to indicate an ExtInt
+          }
+          else {
+            LED_dim_green(); // Set the NeoPixel to dim green
+          }
+#endif
+#else
+#ifndef NoLogLED
+          digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
+#endif
+#endif
+#endif
 #ifdef DEBUG
           if (numBytes != SDpacket) {
             Serial.print("SD write error! Write size was ");
@@ -821,6 +1073,7 @@ void loop() // run over and over again
           // TIM_TM2 is class 0x0d ID 0x03
           // NAV_POSLLH is class 0x01 ID 0x02
           // NAV_PVT is class 0x01 ID 0x07
+          // NAV-STATUS is class 0x01 ID 0x03
           case (looking_for_class): {
             ubx_class = c;
             ubx_expected_checksum_A = ubx_expected_checksum_A + c; // Update the expected checksum
@@ -850,8 +1103,8 @@ void loop() // run over and over again
               Serial.println("Panic!! Was expecting ID of 0x03 but did not receive one!");
               ubx_state = sync_lost;
             }
-            else if ((ubx_class == 0x01) and ((ubx_ID != 0x02) and (ubx_ID != 0x07))) {
-              Serial.println("Panic!! Was expecting ID of 0x02 or 0x07 but did not receive one!");
+            else if ((ubx_class == 0x01) and ((ubx_ID != 0x02) and (ubx_ID != 0x07) and (ubx_ID != 0x03))) {
+              Serial.println("Panic!! Was expecting ID of 0x02 or 0x07 or 0x03 but did not receive one!");
               ubx_state = sync_lost;
             }
 #endif
@@ -872,10 +1125,10 @@ void loop() // run over and over again
           }
           break;
           case (processing_payload): {
-            // If this is a NAV_PVT message, check the flags byte (byte offset 21) and flash the green LED if the carrSoln is fixed
+#ifdef DEBUG
+            // If this is a NAV_PVT message, check the flags byte (byte offset 21) and report the carrSoln
             if ((ubx_class == 0x01) and (ubx_ID == 0x07)) { // Is this a NAV_PVT message (class 0x01 ID 0x07)?
               if (ubx_length == 71) { // Is this byte offset 21? (ubx_length will be 92 for byte offset 0, so will be 71 for byte offset 21)
-#ifdef DEBUG
                 Serial.print("NAV_PVT carrSoln: ");
                 if ((c & 0xc0) == 0x00) {
                   Serial.println("none");
@@ -886,12 +1139,59 @@ void loop() // run over and over again
                 else if ((c & 0xc0) == 0x80) {
                   Serial.println("fixed");
                 }
+              }
+            }
 #endif
-                if ((c & 0xc0) == 0x80) { // Is the carrSoln 10 binary (fixed ambiguities)?
-                  digitalWrite(GreenLED, !digitalRead(GreenLED)); // Toggle the green LED
+            // If this is a NAV_STATUS message, check the gpsFix byte (byte offset 4) and flash the green LED (or make the NeoPixel magenta) if the fix is TIME
+            if ((ubx_class == 0x01) and (ubx_ID == 0x03)) { // Is this a NAV_STATUS message (class 0x01 ID 0x03)?
+              if (ubx_length == 12) { // Is this byte offset 4? (ubx_length will be 16 for byte offset 0, so will be 12 for byte offset 4)
+#ifdef DEBUG
+                Serial.print("NAV_STATUS gpsFix: ");
+                if (c == 0x00) {
+                  Serial.println("no fix");
+                }
+                else if (c == 0x01) {
+                  Serial.println("dead reckoning");
+                }
+                else if (c == 0x02) {
+                  Serial.println("2D-fix");
+                }
+                else if (c == 0x03) {
+                  Serial.println("3D-fix");
+                }
+                else if (c == 0x04) {
+                  Serial.println("GPS + dead reckoning");
+                }
+                else if (c == 0x05) {
+                  Serial.println("time");
                 }
                 else {
-                  digitalWrite(GreenLED, HIGH); // If the carrSoln is none or floating, leave the green LED on
+                  Serial.println("reserved");
+                }
+#endif
+                if (c == 0x05) { // Have we got a TIME fix?
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+                  if (millis() > ExtIntTimer) {
+                    LED_magenta(); // Set the NeoPixel to magenta only if we are not already showing white
+                  }
+#endif
+#else
+#ifndef NoLogLED
+                  digitalWrite(GreenLED, !digitalRead(GreenLED)); // Toggle the green LED
+#endif
+#endif
+#endif            
+                }
+                else {
+#ifndef NoLED
+#ifndef NeoPixel
+#ifndef NoLogLED
+                  digitalWrite(GreenLED, HIGH); // If the fix is not TIME, leave the green LED on
+#endif
+#endif
+#endif
                 }
               }
             }
@@ -944,14 +1244,42 @@ void loop() // run over and over again
 
     // Close the current log file and open a new one without stopping RAWX messages
     case new_file: {
-      digitalWrite(RedLED, HIGH); // flash red LED
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+      LED_green(); // Set the NeoPixel to green
+#endif
+#else
+#ifndef NoLogLED
+      digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#endif
+#endif
+#endif
       // If there is any data left in serBuffer, write it to file
       if (bufferPointer > 0) {
-        digitalWrite(RedLED, HIGH); // flash red LED
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+        LED_green(); // Set the NeoPixel to green
+#endif
+#else
+#ifndef NoLogLED
+        digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#endif
+#endif
+#endif
         numBytes = rawx_dataFile.write(&serBuffer, bufferPointer); // Write remaining data
         rawx_dataFile.sync(); // Sync the file system
         bytes_written += bufferPointer;
-        digitalWrite(RedLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+        LED_dim_green(); // Set the NeoPixel to dim green
+#endif
+#else
+        digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
+#endif
+#endif
 #ifdef DEBUG
         if (numBytes != bufferPointer) {
           Serial.print("SD write error! Write size was ");
@@ -992,7 +1320,15 @@ void loop() // run over and over again
       rawx_dataFile.timestamp(T_ACCESS, (RTCyear+2000), RTCmonth, RTCday, RTChours, RTCminutes, RTCseconds);
 #endif      
       rawx_dataFile.close(); // close the file
-      digitalWrite(RedLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+      LED_dim_green(); // Set the NeoPixel to dim green
+#endif
+#else
+      digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
+#endif
+#endif
 #ifdef DEBUG
       uint32_t filesize = rawx_dataFile.fileSize(); // Get the file size
       Serial.print("File size is ");
@@ -1008,6 +1344,15 @@ void loop() // run over and over again
       rtc_mins = rtc_mins + INTERVAL; // Add the INTERVAL to the RTC minutes
       rtc_mins = rtc_mins % 60; // Correct for hour rollover
       rtc.setAlarmMinutes(rtc_mins); // Set next alarm time (minutes only - hours are ignored)
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+      LED_cyan(); // Set the NeoPixel to cyan
+#else
+      LED_off(); // Turn NeoPixel off if NoLogLED
+#endif
+#endif
+#endif
       loop_step = open_file; // loop round again and open a new file
       bytes_written = 0; // Clear bytes_written
     }
@@ -1024,10 +1369,28 @@ void loop() // run over and over again
           bufferPointer++;
           if (bufferPointer == SDpacket) { // Write a full packet
             bufferPointer = 0;
-            digitalWrite(RedLED, HIGH); // flash red LED
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+            LED_green(); // Set the NeoPixel to green
+#endif
+#else
+#ifndef NoLogLED
+            digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#endif
+#endif
+#endif
             numBytes = rawx_dataFile.write(&serBuffer, SDpacket);
             //rawx_dataFile.sync(); // Sync the file system
-            digitalWrite(RedLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+            LED_dim_green(); // Set the NeoPixel to dim green
+#endif
+#else
+            digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
+#endif
+#endif
             bytes_written += SDpacket;
 #ifdef DEBUG
             if (numBytes != SDpacket) {
@@ -1050,11 +1413,29 @@ void loop() // run over and over again
       }
       // If there is any data left in serBuffer, write it to file
       if (bufferPointer > 0) {
-        digitalWrite(RedLED, HIGH); // flash red LED
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+        LED_green(); // Set the NeoPixel to green
+#endif
+#else
+#ifndef NoLogLED
+        digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#endif
+#endif
+#endif
         numBytes = rawx_dataFile.write(&serBuffer, bufferPointer); // Write remaining data
         rawx_dataFile.sync(); // Sync the file system
         bytes_written += bufferPointer;
-        digitalWrite(RedLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+        LED_dim_green(); // Set the NeoPixel to dim green
+#endif
+#else
+        digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
+#endif
+#endif
 #ifdef DEBUG
         if (numBytes != bufferPointer) {
           Serial.print("SD write error! Write size was ");
@@ -1085,11 +1466,29 @@ void loop() // run over and over again
       }
       // If the last 10 bytes did contain any data, write it to file now
       if (bufferPointer > 0) {
-        digitalWrite(RedLED, HIGH); // flash red LED
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+        LED_green(); // Set the NeoPixel to green
+#endif
+#else
+#ifndef NoLogLED
+        digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#endif
+#endif
+#endif
         numBytes = rawx_dataFile.write(&serBuffer, bufferPointer); // Write remaining data
         rawx_dataFile.sync(); // Sync the file system
         bytes_written += bufferPointer;
-        digitalWrite(RedLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+        LED_dim_green(); // Set the NeoPixel to dim green
+#endif
+#else
+        digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
+#endif
+#endif
 #ifdef DEBUG
         if (numBytes != bufferPointer) {
           Serial.print("SD write error! Write size was ");
@@ -1104,7 +1503,17 @@ void loop() // run over and over again
 #endif
         bufferPointer = 0; // reset bufferPointer
       }
-      digitalWrite(RedLED, HIGH); // flash red LED
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+      LED_green(); // Set the NeoPixel to green
+#endif
+#else
+#ifndef NoLogLED
+      digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#endif
+#endif
+#endif
       // Get the RTC time and date
       uint8_t RTCseconds = rtc.getSeconds();
       uint8_t RTCminutes = rtc.getMinutes();
@@ -1129,7 +1538,15 @@ void loop() // run over and over again
       rawx_dataFile.timestamp(T_ACCESS, (RTCyear+2000), RTCmonth, RTCday, RTChours, RTCminutes, RTCseconds);
 #endif      
       rawx_dataFile.close(); // close the file
-      digitalWrite(RedLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+      LED_dim_green(); // Set the NeoPixel to dim green
+#endif
+#else
+      digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
+#endif
+#endif
 #ifdef DEBUG
       uint32_t filesize = rawx_dataFile.fileSize(); // Get the file size
       Serial.print("File size is ");
@@ -1141,14 +1558,26 @@ void loop() // run over and over again
       // Either the battery is low or the user pressed the stop button:
       if (stop_pressed == true) {
         // Stop switch was pressed so just wait for a reset
-        digitalWrite(RedLED, HIGH); // leave the red led on
+#ifndef NoLED
+#ifdef NeoPixel
+        LED_red(); // Set the NeoPixel to red
+#else
+        digitalWrite(RedLED, HIGH); // Turn the red LED on
+#endif
+#endif
         Serial.println("Waiting for reset...");
         while(1); // Wait for reset
       }
       else {
         // Low battery was detected so wait for the battery to recover
         Serial.println("Battery must be low - waiting for it to recover...");
-        digitalWrite(RedLED, HIGH); // leave the red led on
+#ifndef NoLED
+#ifdef NeoPixel
+        LED_red(); // Set the NeoPixel to red
+#else
+        digitalWrite(RedLED, HIGH); // Turn the red LED on
+#endif
+#endif
         // Check the battery voltage. Make sure it has been OK for at least 5 seconds before continuing
         int high_for = 0;
         while (high_for < 500) {
@@ -1163,7 +1592,13 @@ void loop() // run over and over again
           delay(10); // Wait 10msec
         }
         // Now loop round again and restart rawx messages before opening a new file
-        digitalWrite(RedLED, LOW); // turn the red led off
+#ifndef NoLED
+#ifdef NeoPixel
+        LED_cyan(); // Set the NeoPixel to cyan
+#else
+        digitalWrite(RedLED, LOW); // Turn the red LED off
+#endif
+#endif
         loop_step = start_rawx;
       }
     }
@@ -1181,10 +1616,28 @@ void loop() // run over and over again
           bufferPointer++;
           if (bufferPointer == SDpacket) { // Write a full packet
             bufferPointer = 0;
-            digitalWrite(RedLED, HIGH); // flash red LED
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+            LED_green(); // Set the NeoPixel to green
+#endif
+#else
+#ifndef NoLogLED
+            digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#endif
+#endif
+#endif
             numBytes = rawx_dataFile.write(&serBuffer, SDpacket);
             //rawx_dataFile.sync(); // Sync the file system
-            digitalWrite(RedLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+            LED_dim_green(); // Set the NeoPixel to dim green
+#endif
+#else
+            digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
+#endif
+#endif
             bytes_written += SDpacket;
 #ifdef DEBUG
             if (numBytes != SDpacket) {
@@ -1207,11 +1660,29 @@ void loop() // run over and over again
       }
       // If there is any data left in serBuffer, write it to file
       if (bufferPointer > 0) {
-        digitalWrite(RedLED, HIGH); // flash red LED
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+        LED_green(); // Set the NeoPixel to green
+#endif
+#else
+#ifndef NoLogLED
+        digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#endif
+#endif
+#endif
         numBytes = rawx_dataFile.write(&serBuffer, bufferPointer); // Write remaining data
         rawx_dataFile.sync(); // Sync the file system
         bytes_written += bufferPointer;
-        digitalWrite(RedLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+        LED_dim_green(); // Set the NeoPixel to dim green
+#endif
+#else
+        digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
+#endif
+#endif
 #ifdef DEBUG
         if (numBytes != bufferPointer) {
           Serial.print("SD write error! Write size was ");
@@ -1242,11 +1713,29 @@ void loop() // run over and over again
       }
       // If the last 10 bytes did contain any data, write it to file now
       if (bufferPointer > 0) {
-        digitalWrite(RedLED, HIGH); // flash red LED
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+        LED_green(); // Set the NeoPixel to green
+#endif
+#else
+#ifndef NoLogLED
+        digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#endif
+#endif
+#endif
         numBytes = rawx_dataFile.write(&serBuffer, bufferPointer); // Write remaining data
         rawx_dataFile.sync(); // Sync the file system
         bytes_written += bufferPointer;
-        digitalWrite(RedLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+        LED_dim_green(); // Set the NeoPixel to dim green
+#endif
+#else
+        digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
+#endif
+#endif
 #ifdef DEBUG
         if (numBytes != bufferPointer) {
           Serial.print("SD write error! Write size was ");
@@ -1261,7 +1750,17 @@ void loop() // run over and over again
 #endif
         bufferPointer = 0; // reset bufferPointer
       }
-      digitalWrite(RedLED, HIGH); // flash red LED
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+      LED_green(); // Set the NeoPixel to green
+#endif
+#else
+#ifndef NoLogLED
+      digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
+#endif
+#endif
+#endif
       // Get the RTC time and date
       uint8_t RTCseconds = rtc.getSeconds();
       uint8_t RTCminutes = rtc.getMinutes();
@@ -1286,7 +1785,15 @@ void loop() // run over and over again
       rawx_dataFile.timestamp(T_ACCESS, (RTCyear+2000), RTCmonth, RTCday, RTChours, RTCminutes, RTCseconds);
 #endif      
       rawx_dataFile.close(); // close the file
-      digitalWrite(RedLED, LOW);
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+      LED_dim_green(); // Set the NeoPixel to dim green
+#endif
+#else
+      digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
+#endif
+#endif
 #ifdef DEBUG
       uint32_t filesize = rawx_dataFile.fileSize(); // Get the file size
       Serial.print("File size is ");

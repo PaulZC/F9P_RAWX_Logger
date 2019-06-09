@@ -105,6 +105,14 @@ and set the create, write and access timestamps.
 Use the library manager filter text box to search for "sdfat". Hover over the line which says "SdFat by Bill Greiman"
 and click "Install".
 
+### Adafruit NeoPixel Library
+
+RAWX_Logger_F9P can use a NeoPixel to provide additional information during logging. You will need to install the Adafruit NeoPixel library
+if you want to take advantage of this. By default, the NeoPixel needs to be connected to D13 (sharing the pin with the on-board red LED).
+
+Use the library manager filter text box to search for "Adafruit NeoPixel". Hover over the line which says "Adafruit NeoPixel Library"
+and click "Install".
+
 You can now close the library manager.
 
 ## Download RAWX_Logger_F9P
