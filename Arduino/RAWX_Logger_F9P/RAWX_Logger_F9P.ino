@@ -217,9 +217,9 @@ static const uint8_t setRAWXon[] = {
   0xa5, 0x02, 0x91, 0x20,  0x01,
   0x32, 0x02, 0x91, 0x20,  0x01,
   0x79, 0x01, 0x91, 0x20,  0x01,
-  0x2a, 0x00, 0x91, 0x20,  0x00,   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
+  0x2a, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
   0x07, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_PVT disabled
-  0x1b, 0x00, 0x91, 0x20,  0x01 };
+  0x1b, 0x00, 0x91, 0x20,  0x01 }; // This line enables the NAV_STATUS message
 
 // Enable the NMEA GGA and RMC messages and disable the GLL, GSA, GSV, VTG, and TXT(INF) messages
 // UBX-CFG-VALSET message with key IDs of:
@@ -298,6 +298,13 @@ static const uint8_t setSurveyIn[] = {
   0x11, 0x00, 0x03, 0x40,  0x50, 0xc3, 0x00, 0x00,
   0x10, 0x00, 0x03, 0x40,  0x3c, 0x00, 0x00, 0x00 };
 
+// Disable Survey_In mode
+// UBX-CFG-VALSET message with a key ID of 0x20030001 (CFG-TMODE-MODE) and a value of 0
+static const uint8_t disableSurveyIn[] = {
+  0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,
+  0x00, 0x01, 0x00, 0x00,
+  0x01, 0x00, 0x03, 0x20,  0x00 };
+
 // Enable RTCM message output on UART2
 // UBX-CFG-VALSET message with the following key IDs
 // Set the value byte to 0x01 to send an RTCM message at RATE_MEAS; set the value to 0x04 to send an RTCM message at 1/4 RATE_MEAS
@@ -335,6 +342,13 @@ static const uint8_t setRTCMoff[] = {
   0xd8, 0x02, 0x91, 0x20,  0x00,
   0x1a, 0x03, 0x91, 0x20,  0x00,
   0x05, 0x03, 0x91, 0x20,  0x00 };
+
+// Set TimeGrid for TP1 to GPS (instead of UTC) so TIM_TM2 messages are aligned with GPS time
+// UBX-CFG-VALSET message with the key ID 0x2005000c (CFG-TP-TIMEGRID_TP1) and value of 1 (GPS):
+static const uint8_t setTimeGrid[] = {
+  0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,
+  0x00, 0x01, 0x00, 0x00,
+  0x0c, 0x00, 0x05, 0x20,  0x01 };
 
 // Enable NMEA messages on UART2 for test purposes
 // UBX-CFG-VALSET message with key ID of 0x10760002 (CFG-UART2OUTPROT-NMEA) and value of 1:
@@ -537,6 +551,12 @@ void LED_magenta() // Set LED to magenta
   pixels.show(); // This sends the updated pixel color to the hardware.
 }
 
+void LED_yellow() // Set LED to yellow
+{
+  pixels.setPixelColor(0, pixels.Color(222,222,0)); // Set color.
+  pixels.show(); // This sends the updated pixel color to the hardware.
+}
+
 #endif
 
 void setup()
@@ -601,6 +621,7 @@ void setup()
   Serial.println("Cyan = Checking GNSS Fix");
   Serial.println("Green flicker = SD Write");
   Serial.println("Magenta + Green flash = TIME fix in Survey_In mode");
+  Serial.println("Yellow + Green flash = fixed carrier solution");
   Serial.println("White = EVENT (ExtInt) detected");
 #endif
   Serial.println("Continuous Red indicates a problem or that logging has been stopped");
@@ -640,6 +661,18 @@ void setup()
 
   // Set UART2 Baud rate
   sendUBX(setUART2BAUD_115200);
+  delay(100);
+
+  // Disable Survey_In mode
+  sendUBX(disableSurveyIn);
+  delay(100);
+
+  // Disable RTCM output on UART2
+  sendUBX(setRTCMoff);
+  delay(100);
+
+  // Set the TP1 TimeGrid to GPS so TIM_TM2 messaages are aligned with GPS time
+  sendUBX(setTimeGrid);
   delay(100);
 
   // Check the modePin and set the navigation dynamic model
@@ -1125,10 +1158,10 @@ void loop() // run over and over again
           }
           break;
           case (processing_payload): {
-#ifdef DEBUG
             // If this is a NAV_PVT message, check the flags byte (byte offset 21) and report the carrSoln
             if ((ubx_class == 0x01) and (ubx_ID == 0x07)) { // Is this a NAV_PVT message (class 0x01 ID 0x07)?
               if (ubx_length == 71) { // Is this byte offset 21? (ubx_length will be 92 for byte offset 0, so will be 71 for byte offset 21)
+#ifdef DEBUG
                 Serial.print("NAV_PVT carrSoln: ");
                 if ((c & 0xc0) == 0x00) {
                   Serial.println("none");
@@ -1139,9 +1172,33 @@ void loop() // run over and over again
                 else if ((c & 0xc0) == 0x80) {
                   Serial.println("fixed");
                 }
+#endif
+                if ((c & 0xc0) == 0x80) { // Have we got a fixed carrier solution?
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+                  if (millis() > ExtIntTimer) {
+                    LED_yellow(); // Set the NeoPixel to yellow only if we are not already showing white
+                  }
+#endif
+#else
+#ifndef NoLogLED
+                  digitalWrite(GreenLED, !digitalRead(GreenLED)); // Toggle the green LED
+#endif
+#endif
+#endif            
+                }
+                else {
+#ifndef NoLED
+#ifndef NeoPixel
+#ifndef NoLogLED
+                  digitalWrite(GreenLED, HIGH); // If the fix is not TIME, leave the green LED on
+#endif
+#endif
+#endif
+                }
               }
             }
-#endif
             // If this is a NAV_STATUS message, check the gpsFix byte (byte offset 4) and flash the green LED (or make the NeoPixel magenta) if the fix is TIME
             if ((ubx_class == 0x01) and (ubx_ID == 0x03)) { // Is this a NAV_STATUS message (class 0x01 ID 0x03)?
               if (ubx_length == 12) { // Is this byte offset 4? (ubx_length will be 16 for byte offset 0, so will be 12 for byte offset 4)
