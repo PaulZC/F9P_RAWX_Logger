@@ -2,7 +2,7 @@
 
 // Logs RXM-RAWX, RXM-SFRBX and TIM-TM2 data from u-blox ZED_F9P GNSS to SD card
 // Also logs NAV-STATUS messages for Survey_In mode
-// Optionally logs NAV_POSLLH and NAV_PVT too (if enabled - see lines 220 and 221)
+// Optionally logs NAV_POSLLH and NAV_PVT too (if enabled - see lines 221 and 222)
 
 // Changes to a new log file every INTERVAL minutes
 
@@ -38,6 +38,7 @@ const int dwell = 300;
 // Pin A2 (Digital Pin 16) is reserved for the ZED-F9P EXTINT signal
 // The code uses this an an interrupt to set the NeoPixel to white
 #define ExtIntPin 16 // A2 / Digital Pin 16
+#define white_flash 1000 // Flash the NeoPxel white for this many milliseconds on every ExtInt
 
 // Connect A3 (Digital Pin 17) to GND to select SURVEY_IN mode when in BASE mode
 #define SurveyInPin 17 // A3 / Digital Pin 17
@@ -100,7 +101,7 @@ long bytes_written = 0;
 bool survey_in_mode = false; // Flag to indicate if the code is in survey_in mode
 
 // Timer to indicate if an ExtInt has been received
-volatile unsigned long ExtIntTimer; // Load this with millis plus 1000 to show when the ExtInt LED should be switched off
+volatile unsigned long ExtIntTimer; // Load this with millis plus white_flash to show when the ExtInt LED should be switched off
 
 // Define packet size, buffer and buffer pointer for SD card writes
 const size_t SDpacket = 512;
@@ -395,7 +396,7 @@ void sendUBX(const uint8_t *message) {
 
 // ExtInt interrupt service routine
 void ExtInt() {
-  ExtIntTimer = millis() + 1000; // Set the timer value to 1000 milliseconds from now
+  ExtIntTimer = millis() + white_flash; // Set the timer value to white_flash milliseconds from now
 }
 
 // RTC alarm interrupt
@@ -477,84 +478,75 @@ void TC3_Handler() {
 
 #ifdef NeoPixel
 
-void LED_off() // Turn NeoPixel off
+// Define the NeoPixel colors
+#define black 0
+#define blue 1
+#define cyan 2
+#define green 3
+#define yellow 4
+#define red 5
+#define magenta 6
+#define white 7
+#define dim_blue 8
+#define dim_cyan 9
+#define dim_green 10
+#define dim_yellow 11
+#define dim_red 12
+#define dim_magenta 13
+#define dim_white 14
+
+#define to_dim 7 // Offset from bright to dim colors
+
+int write_color = green; // Flash the NeoPixel this color during SD writes (can be set to magenta or yellow too)
+
+volatile int last_color = black;
+volatile int this_color = black;
+
+void setLED(int color) // Set NeoPixel color
 {
-  pixels.setPixelColor(0,0,0,0);
+  if (color >= dim_blue)
+  {
+    pixels.setBrightness(LED_Brightness / 2); // Dim the LED brightness
+  }
+  if (color == black)
+  {
+    pixels.setPixelColor(0,0,0,0);
+  }
+  else if ((color == dim_blue) || (color == blue))
+  {
+    pixels.setPixelColor(0, pixels.Color(0,0,255)); // Set color
+  }
+  else if ((color == dim_cyan) || (color == cyan))
+  {
+    pixels.setPixelColor(0, pixels.Color(0,222,255)); // Set color
+  }
+  else if ((color == dim_green) || (color == green))
+  {
+    pixels.setPixelColor(0, pixels.Color(0,222,0)); // Set color
+  }
+  else if ((color == dim_yellow) || (color == yellow))
+  {
+    pixels.setPixelColor(0, pixels.Color(222,222,0)); // Set color
+  }
+  else if ((color == dim_red) || (color == red))
+  {
+    pixels.setPixelColor(0, pixels.Color(222,0,0)); // Set color
+  }
+  else if ((color == dim_magenta) || (color == magenta))
+  {
+    pixels.setPixelColor(0, pixels.Color(222,0,255)); // Set color
+  }
+  else // must be dim_white or white
+  {
+    pixels.setPixelColor(0, pixels.Color(222,222,255)); // Set color
+  }
   pixels.show();
-}
-
-void LED_dim_white() // Set LED to dim white
-{
-  pixels.setBrightness(LED_Brightness / 2); // Dim the LED brightness
-  pixels.setPixelColor(0, pixels.Color(222,222,255)); // Set color.
-  pixels.show(); // This sends the updated pixel color to the hardware.
-  pixels.setBrightness(LED_Brightness); // Reset the LED brightness
-}
-
-void LED_dim_blue() // Set LED to dim blue
-{
-  pixels.setBrightness(LED_Brightness / 2); // Dim the LED brightness
-  pixels.setPixelColor(0, pixels.Color(0,0,255)); // Set color.
-  pixels.show(); // This sends the updated pixel color to the hardware.
-  pixels.setBrightness(LED_Brightness); // Reset the LED brightness
-}
-
-void LED_dim_green() // Set LED to dim green
-{
-  pixels.setBrightness(LED_Brightness / 2); // Dim the LED brightness
-  pixels.setPixelColor(0, pixels.Color(0,222,0)); // Set color.
-  pixels.show(); // This sends the updated pixel color to the hardware.
-  pixels.setBrightness(LED_Brightness); // Reset the LED brightness
-}
-
-void LED_dim_cyan() // Set LED to dim cyan
-{
-  pixels.setBrightness(LED_Brightness / 2); // Dim the LED brightness
-  pixels.setPixelColor(0, pixels.Color(0,222,255)); // Set color.
-  pixels.show(); // This sends the updated pixel color to the hardware.
-  pixels.setBrightness(LED_Brightness); // Reset the LED brightness
-}
-
-void LED_white() // Set LED to white
-{
-  pixels.setPixelColor(0, pixels.Color(222,222,255)); // Set color.
-  pixels.show(); // This sends the updated pixel color to the hardware.
-}
-
-void LED_red() // Set LED to red
-{
-  pixels.setPixelColor(0, pixels.Color(222,0,0)); // Set color.
-  pixels.show(); // This sends the updated pixel color to the hardware.
-}
-
-void LED_green() // Set LED to green
-{
-  pixels.setPixelColor(0, pixels.Color(0,222,0)); // Set color.
-  pixels.show(); // This sends the updated pixel color to the hardware.
-}
-
-void LED_blue() // Set LED to blue
-{
-  pixels.setPixelColor(0, pixels.Color(0,0,255)); // Set color.
-  pixels.show(); // This sends the updated pixel color to the hardware.
-}
-
-void LED_cyan() // Set LED to cyan
-{
-  pixels.setPixelColor(0, pixels.Color(0,222,255)); // Set color.
-  pixels.show(); // This sends the updated pixel color to the hardware.
-}
-
-void LED_magenta() // Set LED to magenta
-{
-  pixels.setPixelColor(0, pixels.Color(222,0,255)); // Set color.
-  pixels.show(); // This sends the updated pixel color to the hardware.
-}
-
-void LED_yellow() // Set LED to yellow
-{
-  pixels.setPixelColor(0, pixels.Color(222,222,0)); // Set color.
-  pixels.show(); // This sends the updated pixel color to the hardware.
+  if (color >= dim_blue)
+  {
+    pixels.setBrightness(LED_Brightness); // Reset the LED brightness
+  }
+  last_color = this_color;
+  this_color = color;
 }
 
 #endif
@@ -566,9 +558,9 @@ void setup()
   pixels.begin(); // This initializes the NeoPixel library.
   delay(100); // Seems necessary to make the NeoPixel start reliably 
   pixels.setBrightness(LED_Brightness); // Initialize the LED brightness
-  LED_off(); // Set NeoPixel off
+  setLED(black); // Set NeoPixel off
 #ifndef NoLED
-  LED_dim_blue(); // Set NeoPixel to dim blue
+  setLED(dim_blue); // Set NeoPixel to dim blue
 #endif
 #else
   // initialize digital pins RedLED and GreenLED as outputs.
@@ -619,9 +611,9 @@ void setup()
   Serial.println("Blue = Init");
   Serial.println("Dim Cyan = Waiting for GNSS Fix");
   Serial.println("Cyan = Checking GNSS Fix");
-  Serial.println("Green flicker = SD Write");
-  Serial.println("Magenta + Green flash = TIME fix in Survey_In mode");
-  Serial.println("Yellow + Green flash = fixed carrier solution");
+  Serial.println("Green flash = SD Write");
+  Serial.println("Magenta flash = TIME fix in Survey_In mode");
+  Serial.println("Yellow flash = fixed carrier solution");
   Serial.println("White = EVENT (ExtInt) detected");
 #endif
   Serial.println("Continuous Red indicates a problem or that logging has been stopped");
@@ -629,7 +621,7 @@ void setup()
 
 #ifndef NoLED
 #ifdef NeoPixel
-  LED_blue(); // Set NeoPixel to blue
+  setLED(blue); // Set NeoPixel to blue
 #endif
 #endif
 
@@ -714,7 +706,7 @@ void setup()
     Serial.println("Waiting for reset...");
 #ifndef NoLED
 #ifdef NeoPixel
-    LED_red(); // Set NeoPixel to red
+    setLED(red); // Set NeoPixel to red
 #endif
 #endif
     // don't do anything more:
@@ -724,13 +716,17 @@ void setup()
 
 #ifndef NoLED
 #ifdef NeoPixel
-  LED_dim_cyan(); // Set NeoPixel to dim cyan now that the SD card is initialised
+  setLED(dim_cyan); // Set NeoPixel to dim cyan now that the SD card is initialised
 #else
   // turn red LED off
   digitalWrite(RedLED, LOW);
 #endif
 #endif
 
+#ifdef NeoPixel
+      write_color = green; // Reset the write color to green
+#endif
+          
   Serial.println("Waiting for GNSS fix...");
 }
 
@@ -785,7 +781,7 @@ void loop() // run over and over again
         if (GPS.fix) {
 #ifndef NoLED
 #ifdef NeoPixel
-          LED_cyan(); // Set NeoPixel to cyan
+          setLED(cyan); // Set NeoPixel to cyan
 #else
           digitalWrite(GreenLED, HIGH);
 #endif
@@ -798,7 +794,7 @@ void loop() // run over and over again
         else {
 #ifndef NoLED
 #ifdef NeoPixel
-          LED_dim_cyan(); // Set NeoPixel to dim cyan
+          setLED(dim_cyan); // Set NeoPixel to dim cyan
 #else
           digitalWrite(GreenLED, LOW); // Turn green LED off
 #endif
@@ -939,9 +935,9 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-      LED_green(); // Set the NeoPixel to green
+      setLED(green); // Set the NeoPixel to green
 #else
-      LED_off(); // Turn NeoPixel off if NoLogLED
+      setLED(black); // Turn NeoPixel off if NoLogLED
 #endif
 #else
 #ifndef NoLogLED
@@ -967,7 +963,7 @@ void loop() // run over and over again
         Serial.println("Waiting for reset...");
 #ifndef NoLED
 #ifdef NeoPixel
-      LED_red(); // Set the NeoPixel to red to indicate a problem
+      setLED(red); // Set the NeoPixel to red to indicate a problem
 #else
       digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate a problem
 #endif
@@ -990,7 +986,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-      LED_dim_green();
+      setLED(dim_green);
 #endif
 #else
       digitalWrite(RedLED, LOW); // turn red LED off
@@ -1001,13 +997,34 @@ void loop() // run over and over again
 
       ubx_state = looking_for_B5; // set ubx_state to expect B5
       ubx_length = 0; // set ubx_length to zero
-          
+
       loop_step = write_file; // start logging rawx data
     }
     break;
 
     // Stuff bytes into serBuffer and write when we have reached SDpacket
     case write_file: {
+      
+#ifndef NoLED
+#ifdef NeoPixel
+#ifndef NoLogLED
+      // Check if NeoPixel should be flashed white
+      if (this_color != white) { // Skip if the NeoPixel is already white
+        // Check if the NeoPixel should be flashed white
+        if (millis() < ExtIntTimer) {
+          setLED(white); // Set the NeoPixel to white to indicate an ExtInt
+        }
+      }
+      else { // NeoPixel must already be white so check if it should be turned off
+        // Check if the timer has expired
+        if (millis() > ExtIntTimer) {
+          setLED(last_color); // Set the NeoPixel to the previous color
+        }
+      }
+#endif
+#endif
+#endif
+      
       if (SerialBuffer.available()) {
         uint8_t c = SerialBuffer.read_char();
         serBuffer[bufferPointer] = c;
@@ -1019,11 +1036,11 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-          if (millis() < ExtIntTimer) {
-            LED_white(); // Set the NeoPixel to white to indicate an ExtInt
+          if (this_color != white) { // If the NeoPixel is not currently white
+            setLED(write_color); // Set the NeoPixel
           }
-          else {
-            LED_green(); // Set the NeoPixel to green
+          else { // If the NeoPixel is white, set last_color to write_color so it will revert to that when the white flash is complete
+            last_color = write_color;
           }
 #endif
 #else
@@ -1038,11 +1055,11 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-          if (millis() < ExtIntTimer) {
-            LED_white(); // Set the NeoPixel to white to indicate an ExtInt
+          if (this_color != white) { // If the NeoPixel is not currently white
+            setLED(write_color + to_dim); // Set the NeoPixel
           }
-          else {
-            LED_dim_green(); // Set the NeoPixel to dim green
+          else { // If the NeoPixel is white, set last_color to dim_write_color so it will revert to that when the white flash is complete
+            last_color = write_color + to_dim;
           }
 #endif
 #else
@@ -1176,21 +1193,21 @@ void loop() // run over and over again
                 if ((c & 0xc0) == 0x80) { // Have we got a fixed carrier solution?
 #ifndef NoLED
 #ifdef NeoPixel
-#ifndef NoLogLED
-                  if (millis() > ExtIntTimer) {
-                    LED_yellow(); // Set the NeoPixel to yellow only if we are not already showing white
-                  }
-#endif
+                  write_color = yellow; // Change the SD write color to yellow to indicate fixed carrSoln
 #else
 #ifndef NoLogLED
                   digitalWrite(GreenLED, !digitalRead(GreenLED)); // Toggle the green LED
 #endif
 #endif
-#endif            
+#endif         
                 }
                 else {
 #ifndef NoLED
-#ifndef NeoPixel
+#ifdef NeoPixel
+                  if (write_color == yellow) {
+                    write_color = green; // Reset the SD write color to green
+                  }
+#else
 #ifndef NoLogLED
                   digitalWrite(GreenLED, HIGH); // If the fix is not TIME, leave the green LED on
 #endif
@@ -1229,11 +1246,7 @@ void loop() // run over and over again
                 if (c == 0x05) { // Have we got a TIME fix?
 #ifndef NoLED
 #ifdef NeoPixel
-#ifndef NoLogLED
-                  if (millis() > ExtIntTimer) {
-                    LED_magenta(); // Set the NeoPixel to magenta only if we are not already showing white
-                  }
-#endif
+                  write_color = magenta; // Change the SD write color to magenta to indicate time fix (trumps yellow!)
 #else
 #ifndef NoLogLED
                   digitalWrite(GreenLED, !digitalRead(GreenLED)); // Toggle the green LED
@@ -1243,7 +1256,11 @@ void loop() // run over and over again
                 }
                 else {
 #ifndef NoLED
-#ifndef NeoPixel
+#ifdef NeoPixel
+                  if (write_color == magenta) {
+                    write_color = green; // Reset the SD write color to green if it was magenta (not yellow)
+                  }
+#else
 #ifndef NoLogLED
                   digitalWrite(GreenLED, HIGH); // If the fix is not TIME, leave the green LED on
 #endif
@@ -1304,7 +1321,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-      LED_green(); // Set the NeoPixel to green
+      setLED(green); // Set the NeoPixel to green
 #endif
 #else
 #ifndef NoLogLED
@@ -1314,29 +1331,9 @@ void loop() // run over and over again
 #endif
       // If there is any data left in serBuffer, write it to file
       if (bufferPointer > 0) {
-#ifndef NoLED
-#ifdef NeoPixel
-#ifndef NoLogLED
-        LED_green(); // Set the NeoPixel to green
-#endif
-#else
-#ifndef NoLogLED
-        digitalWrite(RedLED, HIGH); // Turn the red LED on to indicate SD card write
-#endif
-#endif
-#endif
         numBytes = rawx_dataFile.write(&serBuffer, bufferPointer); // Write remaining data
         rawx_dataFile.sync(); // Sync the file system
         bytes_written += bufferPointer;
-#ifndef NoLED
-#ifdef NeoPixel
-#ifndef NoLogLED
-        LED_dim_green(); // Set the NeoPixel to dim green
-#endif
-#else
-        digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
-#endif
-#endif
 #ifdef DEBUG
         if (numBytes != bufferPointer) {
           Serial.print("SD write error! Write size was ");
@@ -1380,7 +1377,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-      LED_dim_green(); // Set the NeoPixel to dim green
+      setLED(dim_green); // Set the NeoPixel to dim green
 #endif
 #else
       digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
@@ -1404,9 +1401,9 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-      LED_cyan(); // Set the NeoPixel to cyan
+      setLED(cyan); // Set the NeoPixel to cyan
 #else
-      LED_off(); // Turn NeoPixel off if NoLogLED
+      setLED(black); // Turn NeoPixel off if NoLogLED
 #endif
 #endif
 #endif
@@ -1429,7 +1426,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-            LED_green(); // Set the NeoPixel to green
+            setLED(green); // Set the NeoPixel to green
 #endif
 #else
 #ifndef NoLogLED
@@ -1442,7 +1439,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-            LED_dim_green(); // Set the NeoPixel to dim green
+            setLED(dim_green); // Set the NeoPixel to dim green
 #endif
 #else
             digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
@@ -1473,7 +1470,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-        LED_green(); // Set the NeoPixel to green
+        setLED(green); // Set the NeoPixel to green
 #endif
 #else
 #ifndef NoLogLED
@@ -1487,7 +1484,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-        LED_dim_green(); // Set the NeoPixel to dim green
+        setLED(dim_green); // Set the NeoPixel to dim green
 #endif
 #else
         digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
@@ -1526,7 +1523,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-        LED_green(); // Set the NeoPixel to green
+        setLED(green); // Set the NeoPixel to green
 #endif
 #else
 #ifndef NoLogLED
@@ -1540,7 +1537,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-        LED_dim_green(); // Set the NeoPixel to dim green
+        setLED(dim_green); // Set the NeoPixel to dim green
 #endif
 #else
         digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
@@ -1563,7 +1560,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-      LED_green(); // Set the NeoPixel to green
+      setLED(green); // Set the NeoPixel to green
 #endif
 #else
 #ifndef NoLogLED
@@ -1598,7 +1595,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-      LED_dim_green(); // Set the NeoPixel to dim green
+      setLED(dim_green); // Set the NeoPixel to dim green
 #endif
 #else
       digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
@@ -1617,7 +1614,7 @@ void loop() // run over and over again
         // Stop switch was pressed so just wait for a reset
 #ifndef NoLED
 #ifdef NeoPixel
-        LED_red(); // Set the NeoPixel to red
+        setLED(red); // Set the NeoPixel to red
 #else
         digitalWrite(RedLED, HIGH); // Turn the red LED on
 #endif
@@ -1630,7 +1627,7 @@ void loop() // run over and over again
         Serial.println("Battery must be low - waiting for it to recover...");
 #ifndef NoLED
 #ifdef NeoPixel
-        LED_red(); // Set the NeoPixel to red
+        setLED(red); // Set the NeoPixel to red
 #else
         digitalWrite(RedLED, HIGH); // Turn the red LED on
 #endif
@@ -1651,7 +1648,7 @@ void loop() // run over and over again
         // Now loop round again and restart rawx messages before opening a new file
 #ifndef NoLED
 #ifdef NeoPixel
-        LED_cyan(); // Set the NeoPixel to cyan
+        setLED(cyan); // Set the NeoPixel to cyan
 #else
         digitalWrite(RedLED, LOW); // Turn the red LED off
 #endif
@@ -1676,7 +1673,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-            LED_green(); // Set the NeoPixel to green
+            setLED(green); // Set the NeoPixel to green
 #endif
 #else
 #ifndef NoLogLED
@@ -1689,7 +1686,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-            LED_dim_green(); // Set the NeoPixel to dim green
+            setLED(dim_green); // Set the NeoPixel to dim green
 #endif
 #else
             digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
@@ -1720,7 +1717,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-        LED_green(); // Set the NeoPixel to green
+        setLED(green); // Set the NeoPixel to green
 #endif
 #else
 #ifndef NoLogLED
@@ -1734,7 +1731,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-        LED_dim_green(); // Set the NeoPixel to dim green
+        setLED(dim_green); // Set the NeoPixel to dim green
 #endif
 #else
         digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
@@ -1773,7 +1770,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-        LED_green(); // Set the NeoPixel to green
+        setLED(green); // Set the NeoPixel to green
 #endif
 #else
 #ifndef NoLogLED
@@ -1787,7 +1784,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-        LED_dim_green(); // Set the NeoPixel to dim green
+        setLED(dim_green); // Set the NeoPixel to dim green
 #endif
 #else
         digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
@@ -1810,7 +1807,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-      LED_green(); // Set the NeoPixel to green
+      setLED(green); // Set the NeoPixel to green
 #endif
 #else
 #ifndef NoLogLED
@@ -1845,7 +1842,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
 #ifndef NoLogLED
-      LED_dim_green(); // Set the NeoPixel to dim green
+      setLED(dim_green); // Set the NeoPixel to dim green
 #endif
 #else
       digitalWrite(RedLED, LOW); // Turn the red LED off to indicate SD card write is complete
