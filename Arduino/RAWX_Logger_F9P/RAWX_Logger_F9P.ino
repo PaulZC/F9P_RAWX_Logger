@@ -1193,7 +1193,9 @@ void loop() // run over and over again
                 if ((c & 0xc0) == 0x80) { // Have we got a fixed carrier solution?
 #ifndef NoLED
 #ifdef NeoPixel
-                  write_color = yellow; // Change the SD write color to yellow to indicate fixed carrSoln
+                  if (write_color == green) { // Check that write_color is green before changing it to yellow, to give magenta priority
+                    write_color = yellow; // Change the SD write color to yellow to indicate fixed carrSoln
+                  }
 #else
 #ifndef NoLogLED
                   digitalWrite(GreenLED, !digitalRead(GreenLED)); // Toggle the green LED
@@ -1201,11 +1203,11 @@ void loop() // run over and over again
 #endif
 #endif         
                 }
-                else {
+                else { // carrSoln is not fixed
 #ifndef NoLED
 #ifdef NeoPixel
                   if (write_color == yellow) {
-                    write_color = green; // Reset the SD write color to green
+                    write_color = green; // Reset the SD write color to green only if it was yellow previously
                   }
 #else
 #ifndef NoLogLED
@@ -1258,7 +1260,7 @@ void loop() // run over and over again
 #ifndef NoLED
 #ifdef NeoPixel
                   if (write_color == magenta) {
-                    write_color = green; // Reset the SD write color to green if it was magenta (not yellow)
+                    write_color = green; // Reset the SD write color to green only if it was magenta previously (not yellow)
                   }
 #else
 #ifndef NoLogLED
