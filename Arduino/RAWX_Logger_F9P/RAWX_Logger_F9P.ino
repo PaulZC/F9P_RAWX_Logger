@@ -2,7 +2,7 @@
 
 // Logs RXM-RAWX, RXM-SFRBX and TIM-TM2 data from u-blox ZED_F9P GNSS to SD card
 // Also logs NAV_PVT messages (which provide the carrSoln status) and NAV-STATUS messages (which indicate a time fix for Survey_In mode)
-// Also logs high precision NMEA GPGGA position solution messages which can be extracted by RTKLIB
+// Also logs high precision NMEA GNGGA position solution messages which can be extracted by RTKLIB
 
 // Changes to a new log file every INTERVAL minutes
 
@@ -202,6 +202,7 @@ static const uint8_t setUSBoff[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00
 
 // setRAWXoff: this is the message which disables all of the messages being logged to SD card
 // It also clears the NMEA high precision mode for the GPGGA message
+// It also sets the main talker ID to 'GP'
 // UBX-CFG-VALSET message with key IDs of:
 // 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
 // 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
@@ -211,9 +212,10 @@ static const uint8_t setUSBoff[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00
 // 0x2091001b (CFG-MSGOUT-UBX_NAV_STATUS_UART1)
 // 0x10930006 (CFG-NMEA-HIGHPREC)
 // 0x209100bb (CFG-MSGOUT-NMEA_ID_GGA_UART1)
-// and values (rates) of zero:
+// and values (rates) of zero
+// 0x20930031 (CFG-NMEA-MAINTALKERID) has value 1 (GP)
 static const uint8_t setRAWXoff[] = {
-  0xb5, 0x62,  0x06, 0x8a,  0x2c, 0x00,
+  0xb5, 0x62,  0x06, 0x8a,  0x31, 0x00,
   0x00, 0x01, 0x00, 0x00,
   0xa5, 0x02, 0x91, 0x20,  0x00,
   0x32, 0x02, 0x91, 0x20,  0x00,
@@ -221,11 +223,13 @@ static const uint8_t setRAWXoff[] = {
   0x2a, 0x00, 0x91, 0x20,  0x00,
   0x07, 0x00, 0x91, 0x20,  0x00,
   0x1b, 0x00, 0x91, 0x20,  0x00,
+  0x31, 0x00, 0x93, 0x20,  0x01,   // This line sets the main talker ID to GP
   0x06, 0x00, 0x93, 0x10,  0x00,   // This line disables NMEA high precision mode
   0xbb, 0x00, 0x91, 0x20,  0x00 }; // This line disables the GGA message
 
 // setRAWXon: this is the message which enables all of the messages to be logged to SD card in one go
-// It also sets the NMEA high precision mode for the GPGGA message
+// It also sets the NMEA high precision mode for the GNGGA message
+// It also sets the main talker ID to 'GN'
 // UBX-CFG-VALSET message with key IDs of:
 // 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
 // 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
@@ -235,9 +239,10 @@ static const uint8_t setRAWXoff[] = {
 // 0x2091001b (CFG-MSGOUT-UBX_NAV_STATUS_UART1)
 // 0x10930006 (CFG-NMEA-HIGHPREC)
 // 0x209100bb (CFG-MSGOUT-NMEA_ID_GGA_UART1)
-// and values (rates) of 1:
+// and values (rates) of 1
+// 0x20930031 (CFG-NMEA-MAINTALKERID) has value 3 (GN)
 static const uint8_t setRAWXon[] = {
-  0xb5, 0x62,  0x06, 0x8a,  0x2c, 0x00,
+  0xb5, 0x62,  0x06, 0x8a,  0x31, 0x00,
   0x00, 0x01, 0x00, 0x00,
   0xa5, 0x02, 0x91, 0x20,  0x01,
   0x32, 0x02, 0x91, 0x20,  0x01,
@@ -245,6 +250,7 @@ static const uint8_t setRAWXon[] = {
   0x2a, 0x00, 0x91, 0x20,  0x00,   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
   0x07, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_PVT disabled
   0x1b, 0x00, 0x91, 0x20,  0x01,   // This line enables the NAV_STATUS message
+  0x31, 0x00, 0x93, 0x20,  0x03,   // This line sets the main talker ID to GN
   0x06, 0x00, 0x93, 0x10,  0x01,   // This sets the NMEA high precision mode
   0xbb, 0x00, 0x91, 0x20,  0x01 }; // This (re)enables the GGA mesage
 

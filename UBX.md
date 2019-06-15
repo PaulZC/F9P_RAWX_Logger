@@ -219,8 +219,8 @@ setRAWXon[] = { 0xb5, 0x62,  0x06, 0x8a,  0x13, 0x00,  0x00, 0x01, 0x00, 0x00,
 If you study the code, you will see that the NAV_POSLLH, NAV_PVT and NAV_STATUS are also enabled and logged. You can disable these by editing the setRAWXon
 message definition. However, I would recommend leaving NAV_STATUS enabled as the code uses this to indicate when Survey_In mode has achieved a TIME solution.
 
-The latest version of the logger code can log NMEA format messages to the SD card too. This is useful as RTKLIB can extract high precision GGA messages from
-the log file. Have a look at the definition for setRAWXon in the code, you will be able to see the key IDs that enable the GGA message and high precision mode.
+The latest version of the logger code can log NMEA format messages to the SD card too. This is useful as RTKLIB can extract high precision GNGGA messages from
+the log file. Have a look at the definition for setRAWXon in the code, you will be able to see the key IDs that enable the GNGGA message and high precision mode.
 setRAWXoff disables the high precision mode in case the extra decimal places in the latitude and longitude confuse the Adafruit GPS library.
 
 ## Opening the log file
