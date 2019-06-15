@@ -1,8 +1,8 @@
 // RAWX_Logger_F9P
 
 // Logs RXM-RAWX, RXM-SFRBX and TIM-TM2 data from u-blox ZED_F9P GNSS to SD card
-// Also logs NAV-STATUS messages for Survey_In mode
-// Optionally logs NAV_POSLLH and NAV_PVT too (if enabled - see lines 221 and 222)
+// Also logs NAV_PVT messages (which provide the carrSoln status) and NAV-STATUS messages (which indicate a time fix for Survey_In mode)
+// Also logs high precision NMEA GPGGA position solution messages which can be extracted by RTKLIB
 
 // Changes to a new log file every INTERVAL minutes
 
@@ -141,8 +141,8 @@ RingBufferN<8192> SerialBuffer; // Define SerialBuffer as a RingBuffer of size 8
 #define restart_file  6
 int loop_step = init;
 
-// UBX State
-#define looking_for_B5          0
+// UBX and NMEA Parse State
+#define looking_for_B5_dollar   0
 #define looking_for_62          1
 #define looking_for_class       2
 #define looking_for_ID          3
@@ -152,7 +152,12 @@ int loop_step = init;
 #define looking_for_checksum_A  7
 #define looking_for_checksum_B  8
 #define sync_lost               9
-int ubx_state = looking_for_B5;
+#define looking_for_asterix     10
+#define looking_for_csum1       11
+#define looking_for_csum2       12
+#define looking_for_term1       13
+#define looking_for_term2       14
+int ubx_nmea_state = looking_for_B5_dollar;
 int ubx_length = 0;
 int ubx_class = 0;
 int ubx_ID = 0;
@@ -160,6 +165,17 @@ int ubx_checksum_A = 0;
 int ubx_checksum_B = 0;
 int ubx_expected_checksum_A = 0;
 int ubx_expected_checksum_B = 0;
+int nmea_char_1 = '0'; // e.g. G
+int nmea_char_2 = '0'; // e.g. P
+int nmea_char_3 = '0'; // e.g. G
+int nmea_char_4 = '0'; // e.g. G
+int nmea_char_5 = '0'; // e.g. A
+int nmea_csum = 0;
+int nmea_csum1 = '0';
+int nmea_csum2 = '0';
+int nmea_expected_csum1 = '0';
+int nmea_expected_csum2 = '0';
+#define max_nmea_len 100 // Maximum length for an NMEA message: use this to detect if we have lost sync while receiving an NMEA message
 
 // Definitions for u-blox F9P UBX-format (binary) messages
 // Each message begins with: <Sync_Char_1 0xb5>, <Sync_Char_2 0x62>, <Class>, <ID>, <Length_LSB>, <Length_MSB>
@@ -184,7 +200,8 @@ static const uint8_t setUART2off[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x
 // UBX-CFG-VALSET message with a key ID of 0x10650001 (CFG-USB-ENABLED) and a value of 0
 static const uint8_t setUSBoff[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,  0x01, 0x00, 0x65, 0x10,  0x00 };
 
-// Disable the RXM_RAWX, RXM_SFRBX, TIM_TM2, NAV_POSLLH, NAV_PVT and NAV_STATUS binary messages in RAM
+// setRAWXoff: this is the message which disables all of the messages being logged to SD card
+// It also clears the NMEA high precision mode for the GPGGA message
 // UBX-CFG-VALSET message with key IDs of:
 // 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
 // 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
@@ -192,18 +209,23 @@ static const uint8_t setUSBoff[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00
 // 0x2091002a (CFG-MSGOUT-UBX_NAV_POSLLH_UART1)
 // 0x20910007 (CFG-MSGOUT-UBX_NAV_PVT_UART1)
 // 0x2091001b (CFG-MSGOUT-UBX_NAV_STATUS_UART1)
+// 0x10930006 (CFG-NMEA-HIGHPREC)
+// 0x209100bb (CFG-MSGOUT-NMEA_ID_GGA_UART1)
 // and values (rates) of zero:
 static const uint8_t setRAWXoff[] = {
-  0xb5, 0x62,  0x06, 0x8a,  0x22, 0x00,
+  0xb5, 0x62,  0x06, 0x8a,  0x2c, 0x00,
   0x00, 0x01, 0x00, 0x00,
   0xa5, 0x02, 0x91, 0x20,  0x00,
   0x32, 0x02, 0x91, 0x20,  0x00,
   0x79, 0x01, 0x91, 0x20,  0x00,
   0x2a, 0x00, 0x91, 0x20,  0x00,
   0x07, 0x00, 0x91, 0x20,  0x00,
-  0x1b, 0x00, 0x91, 0x20,  0x00 };
+  0x1b, 0x00, 0x91, 0x20,  0x00,
+  0x06, 0x00, 0x93, 0x10,  0x00,   // This line disables NMEA high precision mode
+  0xbb, 0x00, 0x91, 0x20,  0x00 }; // This line disables the GGA message
 
-// Enable the RXM_RAWX, RXM_SFRBX, TIM_TM2, NAV_POSLLH, NAV_PVT and NAV_STATUS binary messages in RAM
+// setRAWXon: this is the message which enables all of the messages to be logged to SD card in one go
+// It also sets the NMEA high precision mode for the GPGGA message
 // UBX-CFG-VALSET message with key IDs of:
 // 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
 // 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
@@ -211,16 +233,20 @@ static const uint8_t setRAWXoff[] = {
 // 0x2091002a (CFG-MSGOUT-UBX_NAV_POSLLH_UART1)
 // 0x20910007 (CFG-MSGOUT-UBX_NAV_PVT_UART1)
 // 0x2091001b (CFG-MSGOUT-UBX_NAV_STATUS_UART1)
+// 0x10930006 (CFG-NMEA-HIGHPREC)
+// 0x209100bb (CFG-MSGOUT-NMEA_ID_GGA_UART1)
 // and values (rates) of 1:
 static const uint8_t setRAWXon[] = {
-  0xb5, 0x62,  0x06, 0x8a,  0x22, 0x00,
+  0xb5, 0x62,  0x06, 0x8a,  0x2c, 0x00,
   0x00, 0x01, 0x00, 0x00,
   0xa5, 0x02, 0x91, 0x20,  0x01,
   0x32, 0x02, 0x91, 0x20,  0x01,
   0x79, 0x01, 0x91, 0x20,  0x01,
-  0x2a, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
+  0x2a, 0x00, 0x91, 0x20,  0x00,   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
   0x07, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_PVT disabled
-  0x1b, 0x00, 0x91, 0x20,  0x01 }; // This line enables the NAV_STATUS message
+  0x1b, 0x00, 0x91, 0x20,  0x01,   // This line enables the NAV_STATUS message
+  0x06, 0x00, 0x93, 0x10,  0x01,   // This sets the NMEA high precision mode
+  0xbb, 0x00, 0x91, 0x20,  0x01 }; // This (re)enables the GGA mesage
 
 // Enable the NMEA GGA and RMC messages and disable the GLL, GSA, GSV, VTG, and TXT(INF) messages
 // UBX-CFG-VALSET message with key IDs of:
@@ -602,7 +628,7 @@ void setup()
 
   Serial.begin(115200);
 
-  Serial.println("RAWX_Logger_F9P");
+  Serial.println("RAWX Logger F9P");
   Serial.println("Log GNSS RAWX data to SD card");
 #ifndef NeoPixel
   Serial.println("Green LED = Initial GNSS Fix");
@@ -636,6 +662,7 @@ void setup()
   GPS.begin(230400); // Restart Serial1 at 230400 baud
 
   // Disable RAWX messages
+  // This also disables the NMEA high precision mode in case it confuses the Adafruit GPS library
   sendUBX(setRAWXoff);
   delay(100);
   
@@ -862,7 +889,7 @@ void loop() // run over and over again
 
     // (Re)Start RAWX messages
     case start_rawx: {
-      sendUBX(setRAWXon); // (Re)Start the RXM_RAWX, RXM_SFRBX and TIM_TM2 messages
+      sendUBX(setRAWXon); // (Re)Start the UBX and NMEA messages
 
       bufferPointer = 0; // (Re)initialise bufferPointer
 
@@ -995,7 +1022,7 @@ void loop() // run over and over again
 
       bytes_written = 0; // Clear bytes_written
 
-      ubx_state = looking_for_B5; // set ubx_state to expect B5
+      ubx_nmea_state = looking_for_B5_dollar; // set ubx_nmea_state to expect B5 or $
       ubx_length = 0; // set ubx_length to zero
 
       loop_step = write_file; // start logging rawx data
@@ -1085,7 +1112,8 @@ void loop() // run over and over again
 //          Serial.println(" Bytes written so far");
 //#endif
         }
-        // Process data bytes according to ubx_state:
+        // Process data bytes according to ubx_nmea_state
+        // For UBX messages:
         // Sync Char 1: 0xB5
         // Sync Char 2: 0x62
         // Class byte
@@ -1093,16 +1121,33 @@ void loop() // run over and over again
         // Length: two bytes, little endian
         // Payload: length bytes
         // Checksum: two bytes
-        // Only allow a new file to be opened when a complete packet has been processed and ubx_state has returned to "looking_for_B5"
+        // For NMEA messages:
+        // Starts with a '$'
+        // The next five characters indicate the message type (store in nmea_char_1 to nmea_char_5
+        // Message fields are comma-separated
+        // Followed by an '*'
+        // Then a two character checksum (the logical exclusive-OR of all characters between the $ and the * as ASCII hex)
+        // Ends with CR LF
+        // Only allow a new file to be opened when a complete packet has been processed and ubx_nmea_state has returned to "looking_for_B5_dollar"
         // Or when a data error is detected (sync_lost)
-        switch (ubx_state) {
-          case (looking_for_B5): {
-            if (c == 0xB5) { // Have we found Sync Char 1 (0xB5) when we were expecting one?
-              ubx_state = looking_for_62; // Now look for Sync Char 2 (0x62)
+        switch (ubx_nmea_state) {
+          case (looking_for_B5_dollar): {
+            if (c == 0xB5) { // Have we found Sync Char 1 (0xB5) if we were expecting one?
+              ubx_nmea_state = looking_for_62; // Now look for Sync Char 2 (0x62)
+            }
+            else if (c == '$') { // Have we found an NMEA '$' if we were expecting one?
+              ubx_nmea_state = looking_for_asterix; // Now keep going until we receive an asterix
+              ubx_length = 0; // Reset ubx_length then use it to track which character has arrived
+              nmea_csum = 0; // Reset the nmea_csum. Update it as each character arrives
+              nmea_char_1 = '0'; // Reset the first five NMEA chars to something invalid
+              nmea_char_2 = '0';
+              nmea_char_3 = '0';
+              nmea_char_4 = '0';
+              nmea_char_5 = '0';
             }
             else {
-              Serial.println("Panic!! Was expecting Sync Char 0xB5 but did not receive one!");
-              ubx_state = sync_lost;
+              Serial.println("Panic!! Was expecting Sync Char 0xB5 or an NMEA $ but did not receive one!");
+              ubx_nmea_state = sync_lost;
             }
           }
           break;
@@ -1110,11 +1155,11 @@ void loop() // run over and over again
             if (c == 0x62) { // Have we found Sync Char 2 (0x62) when we were expecting one?
               ubx_expected_checksum_A = 0; // Reset the expected checksum
               ubx_expected_checksum_B = 0;
-              ubx_state = looking_for_class; // Now look for Class byte
+              ubx_nmea_state = looking_for_class; // Now look for Class byte
             }
             else {
               Serial.println("Panic!! Was expecting Sync Char 0x62 but did not receive one!");
-              ubx_state = sync_lost;
+              ubx_nmea_state = sync_lost;
             }
           }
           break;
@@ -1128,12 +1173,12 @@ void loop() // run over and over again
             ubx_class = c;
             ubx_expected_checksum_A = ubx_expected_checksum_A + c; // Update the expected checksum
             ubx_expected_checksum_B = ubx_expected_checksum_B + ubx_expected_checksum_A;
-            ubx_state = looking_for_ID; // Now look for ID byte
+            ubx_nmea_state = looking_for_ID; // Now look for ID byte
 #ifdef DEBUG
             // Class syntax checking
             if ((ubx_class != 0x02) and (ubx_class != 0x0d) and (ubx_class != 0x01)) {
               Serial.println("Panic!! Was expecting Class of 0x02 or 0x0d or 0x01 but did not receive one!");
-              ubx_state = sync_lost;
+              ubx_nmea_state = sync_lost;
             }
 #endif
           }
@@ -1142,20 +1187,20 @@ void loop() // run over and over again
             ubx_ID = c;
             ubx_expected_checksum_A = ubx_expected_checksum_A + c; // Update the expected checksum
             ubx_expected_checksum_B = ubx_expected_checksum_B + ubx_expected_checksum_A;
-            ubx_state = looking_for_length_LSB; // Now look for length LSB
+            ubx_nmea_state = looking_for_length_LSB; // Now look for length LSB
 #ifdef DEBUG
             // ID syntax checking
             if ((ubx_class == 0x02) and ((ubx_ID != 0x15) and (ubx_ID != 0x13))) {
               Serial.println("Panic!! Was expecting ID of 0x15 or 0x13 but did not receive one!");
-              ubx_state = sync_lost;
+              ubx_nmea_state = sync_lost;
             }
             else if ((ubx_class == 0x0d) and (ubx_ID != 0x03)) {
               Serial.println("Panic!! Was expecting ID of 0x03 but did not receive one!");
-              ubx_state = sync_lost;
+              ubx_nmea_state = sync_lost;
             }
             else if ((ubx_class == 0x01) and ((ubx_ID != 0x02) and (ubx_ID != 0x07) and (ubx_ID != 0x03))) {
               Serial.println("Panic!! Was expecting ID of 0x02 or 0x07 or 0x03 but did not receive one!");
-              ubx_state = sync_lost;
+              ubx_nmea_state = sync_lost;
             }
 #endif
           }
@@ -1164,14 +1209,14 @@ void loop() // run over and over again
             ubx_length = c; // Store the length LSB
             ubx_expected_checksum_A = ubx_expected_checksum_A + c; // Update the expected checksum
             ubx_expected_checksum_B = ubx_expected_checksum_B + ubx_expected_checksum_A;
-            ubx_state = looking_for_length_MSB; // Now look for length MSB
+            ubx_nmea_state = looking_for_length_MSB; // Now look for length MSB
           }
           break;
           case (looking_for_length_MSB): {
             ubx_length = ubx_length + (c * 256); // Add the length MSB
             ubx_expected_checksum_A = ubx_expected_checksum_A + c; // Update the expected checksum
             ubx_expected_checksum_B = ubx_expected_checksum_B + ubx_expected_checksum_A;
-            ubx_state = processing_payload; // Now look for payload bytes (length: ubx_length)
+            ubx_nmea_state = processing_payload; // Now look for payload bytes (length: ubx_length)
           }
           break;
           case (processing_payload): {
@@ -1277,21 +1322,118 @@ void loop() // run over and over again
             if (ubx_length == 0) {
               ubx_expected_checksum_A = ubx_expected_checksum_A & 0xff; // Limit checksums to 8-bits
               ubx_expected_checksum_B = ubx_expected_checksum_B & 0xff;
-              ubx_state = looking_for_checksum_A; // If we have received length payload bytes, look for checksum bytes
+              ubx_nmea_state = looking_for_checksum_A; // If we have received length payload bytes, look for checksum bytes
             }
           }
           break;
           case (looking_for_checksum_A): {
             ubx_checksum_A = c;
-            ubx_state = looking_for_checksum_B;
+            ubx_nmea_state = looking_for_checksum_B;
           }
           break;
           case (looking_for_checksum_B): {
             ubx_checksum_B = c;
-            ubx_state = looking_for_B5; // All bytes received so go back to looking for a new Sync Char 1 unless there is a checksum error
+            ubx_nmea_state = looking_for_B5_dollar; // All bytes received so go back to looking for a new Sync Char 1 unless there is a checksum error
             if ((ubx_expected_checksum_A != ubx_checksum_A) or (ubx_expected_checksum_B != ubx_checksum_B)) {
               Serial.println("Panic!! Checksum error!");
-              ubx_state = sync_lost;
+              ubx_nmea_state = sync_lost;
+            }
+          }
+          break;
+          // NMEA messages
+          case (looking_for_asterix): {
+            ubx_length++; // Increase the message length count
+            if (ubx_length > max_nmea_len) { // If the length is greater than max_nmea_len, something bad must have happened (sync_lost)
+              Serial.println("Panic!! Excessive NMEA message length!");
+              ubx_nmea_state = sync_lost;
+              break;
+            }
+            // If this is one of the first five characters, store it
+            // May be useful for on-the-fly message parsing or DEBUG
+            if (ubx_length <= 5) {
+              if (ubx_length == 1) {
+                nmea_char_1 = c;
+              }
+              else if (ubx_length == 2) {
+                nmea_char_2 = c;
+              }
+              else if (ubx_length == 3) {
+                nmea_char_3 = c;
+              }
+              else if (ubx_length == 4) {
+                nmea_char_4 = c;
+              }
+              else { // ubx_length == 5
+                nmea_char_5 = c;
+#ifdef DEBUG
+                Serial.print("NMEA message type is: ");
+                Serial.print(char(nmea_char_1));
+                Serial.print(char(nmea_char_2));
+                Serial.print(char(nmea_char_3));
+                Serial.print(char(nmea_char_4));
+                Serial.println(char(nmea_char_5));
+#endif              
+              }
+            }
+            // Now check if this is an '*'
+            if (c == '*') {
+              // Asterix received
+              // Don't exOR it into the checksum
+              // Instead calculate what the expected checksum should be (nmea_csum in ASCII hex)
+              nmea_expected_csum1 = ((nmea_csum & 0xf0) >> 4) + '0'; // Convert MS nibble to ASCII hex
+              if (nmea_expected_csum1 >= ':') { nmea_expected_csum1 += 7; } // : follows 9 so add 7 to convert to A-F
+              nmea_expected_csum2 = (nmea_csum & 0x0f) + '0'; // Convert LS nibble to ASCII hex
+              if (nmea_expected_csum2 >= ':') { nmea_expected_csum2 += 7; } // : follows 9 so add 7 to convert to A-F
+              // Next, look for the first csum character
+              ubx_nmea_state = looking_for_csum1;
+              break; // Don't include the * in the checksum
+            }
+            // Now update the checksum
+            // The checksum is the exclusive-OR of all characters between the $ and the *
+            nmea_csum = nmea_csum ^ c;
+          }
+          break;
+          case (looking_for_csum1): {
+            // Store the first NMEA checksum character
+            nmea_csum1 = c;
+            ubx_nmea_state = looking_for_csum2;
+          }
+          break;
+          case (looking_for_csum2): {
+            // Store the second NMEA checksum character
+            nmea_csum2 = c;
+            // Now check if the checksum is correct
+            if ((nmea_csum1 != nmea_expected_csum1) or (nmea_csum2 != nmea_expected_csum2)) {
+              // The checksum does not match so sync_lost
+              Serial.println("Panic!! NMEA checksum error!");
+              ubx_nmea_state = sync_lost;
+            }
+            else {
+              // Checksum was valid so wait for the terminators
+              ubx_nmea_state = looking_for_term1;
+            }
+          }
+          break;
+          case (looking_for_term1): {
+            // Check if this is CR
+            if (c != '\r') {
+              Serial.println("Panic!! NMEA CR not found!");
+              ubx_nmea_state = sync_lost;
+            }
+            else {
+              ubx_nmea_state = looking_for_term2;
+            }
+          }
+          break;
+          case (looking_for_term2): {
+            // Check if this is LF
+            if (c != '\n') {
+              Serial.println("Panic!! NMEA LF not found!");
+              ubx_nmea_state = sync_lost;
+            }
+            else {
+              // LF was received so go back to looking for B5 or a $
+              ubx_nmea_state = looking_for_B5_dollar;
             }
           }
           break;
@@ -1308,11 +1450,11 @@ void loop() // run over and over again
         loop_step = close_file; // now close the file
         break;
       }
-      else if ((alarmFlag == true) and (ubx_state == looking_for_B5)) {
+      else if ((alarmFlag == true) and (ubx_nmea_state == looking_for_B5_dollar)) {
         loop_step = new_file; // now close the file and open a new one
         break;
       }
-      else if (ubx_state == sync_lost) {
+      else if (ubx_nmea_state == sync_lost) {
         loop_step = restart_file; // Sync has been lost so stop RAWX messages and open a new file before restarting RAWX
       }
     }
