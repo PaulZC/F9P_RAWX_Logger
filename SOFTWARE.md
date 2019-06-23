@@ -113,6 +113,17 @@ if you want to take advantage of this. By default, the NeoPixel needs to be conn
 Use the library manager filter text box to search for "Adafruit NeoPixel". Hover over the line which says "Adafruit NeoPixel Library"
 and click "Install".
 
+### SparkFun Ublox Library
+
+The [Arduino folder](https://github.com/PaulZC/F9P_RAWX_Logger/tree/master/Arduino) also contains an Arduino sketch called RAWX_Logger_F9P_I2C.
+This code is a little more experimental than the main Logger code, but is also more efficient. It uses the [SparkFun Ublox library](https://github.com/sparkfun/SparkFun_Ublox_Arduino_Library)
+to communicate with the ZED-F9P over its I2C port. All of the message configuration is done over I2C, leaving the UART port clear for the RAWX
+messages themselves. This has the significant advantage that the UBX message acknowledgements go over I2C instead of UART, meaning
+there is no chance of accidentally logging them with the RAWX data.
+
+Use the library manager filter text box to search for "SparkFun Ublox". Hover over the line which says "SparkFun Ublox Library"
+and click "Install".
+
 You can now close the library manager.
 
 ## Download RAWX_Logger_F9P

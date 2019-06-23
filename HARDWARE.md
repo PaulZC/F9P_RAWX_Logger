@@ -61,6 +61,10 @@ The RST connection is only necessary if you want the Adalogger reset switch to b
 
 Connect the SparkFun board to a suitable **active** L1/L2 GNSS antenna using the uFL socket. You may need to use a [uFL to SMA adapter](https://www.sparkfun.com/products/9145).
 
+If you want to try the experimental (but very efficient) RAWX_Logger_F9P_I2C code, you will also need to connect up the SDA and SCL pins:
+
+![I2C](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/I2C.JPG)
+
 ## Rover and Base Mode
 
 Connect the Adalogger A0 pin to GND to put the logger into base mode. Leave A0 floating for rover mode. The only differences between base and rover mode are:

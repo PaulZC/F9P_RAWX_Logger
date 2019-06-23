@@ -421,6 +421,50 @@ significant overhead given that the ISR runs every 434 usec, but it is a price w
 
 ![TC3_ISR_2.JPG](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/TC3_ISR_2.JPG)
 
+## RAWX_Logger_F9P_I2C
+
+The experimental RAWX_Logger_F9P_I2C code uses the I2C port to do all of the message configuration, instead of UART. This makes the code
+much more efficient as the UART port can be dedicated exclusively to the RAWX messages; all data received over UART can be simply streamed onto the
+SD card without having to worry about having to extract UBX message acknowledgements.
+
+The code is experimental since (at the time of writing) the SparkFun Ublox library does not contain a multi-setVal command. This has been
+raised as an issue and no doubt Nate will come up trumps when he has time to take a look. Until then the code defines the VALSET messages
+as custom ubxPackets and sends them using sendCommand. The sendCommand calls all timeout as other parts of the library are expecting the packet to be in
+packetCfg, not our custom packets. But, apart from that, the code works well. Please give it a try if you want to but remember that you will need to
+connect the SDA and SCL pins on the Adalogger to the GPS-RTK2 board.
+
+```
+// setRAWXon: this is the message which enables all of the messages to be logged to SD card in one go
+// It also sets the NMEA high precision mode for the GNGGA message
+// It also sets the main talker ID to 'GN'
+// UBX-CFG-VALSET message with key IDs of:
+// 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
+// 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
+// 0x20910179 (CFG-MSGOUT-UBX_TIM_TM2_UART1)
+// 0x2091002a (CFG-MSGOUT-UBX_NAV_POSLLH_UART1)
+// 0x20910007 (CFG-MSGOUT-UBX_NAV_PVT_UART1)
+// 0x2091001b (CFG-MSGOUT-UBX_NAV_STATUS_UART1)
+// 0x10930006 (CFG-NMEA-HIGHPREC)
+// 0x209100bb (CFG-MSGOUT-NMEA_ID_GGA_UART1)
+// and values (rates) of 1
+// 0x20930031 (CFG-NMEA-MAINTALKERID) has value 3 (GN)
+static uint8_t setRAWXon_payload[] = {
+  0x00, 0x01, 0x00, 0x00,
+  0xa5, 0x02, 0x91, 0x20,  0x01,
+  0x32, 0x02, 0x91, 0x20,  0x01,
+  0x79, 0x01, 0x91, 0x20,  0x01,
+  0x2a, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
+  0x07, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_PVT disabled
+  0x1b, 0x00, 0x91, 0x20,  0x01,   // This line enables the NAV_STATUS message
+  0x31, 0x00, 0x93, 0x20,  0x03,   // This line sets the main talker ID to GN
+  0x06, 0x00, 0x93, 0x10,  0x01,   // This sets the NMEA high precision mode
+  0xbb, 0x00, 0x91, 0x20,  0x01 }; // This (re)enables the GGA mesage
+ubxPacket setRAWXon = { 0x06, 0x8a,  49, 0, 0,  setRAWXon_payload,  0, 0, false };
+```
+
+```
+i2cGPS.sendCommand(setRAWXon); // (Re)Start the UBX and NMEA messages
+```
 
 Enjoy!
 
