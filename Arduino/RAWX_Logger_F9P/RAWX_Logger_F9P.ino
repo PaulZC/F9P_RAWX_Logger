@@ -62,7 +62,7 @@ SFE_UBLOX_GPS GPS;
 //#define NoLogLED // Uncomment this line to disable the LEDs during logging only
 
 // NeoPixel Settings
-#define NeoPixel // Uncomment this line to enable a NeoPixel on the same pin as RedLED
+//#define NeoPixel // Uncomment this line to enable a NeoPixel on the same pin as RedLED
 
 // The red LED flashes during SD card writes
 #define RedLED 13 // The red LED on the Adalogger is connected to Digital Pin 13
