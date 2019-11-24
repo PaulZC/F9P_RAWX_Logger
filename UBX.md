@@ -195,7 +195,6 @@ nextAlarmMin = nextAlarmMin % 60; // Correct hour rollover
 rtc.setAlarmMinutes(nextAlarmMin); // Set RTC Alarm Minutes
 rtc.enableAlarm(rtc.MATCH_MMSS); // Alarm Match on minutes and seconds
 rtc.attachInterrupt(alarmMatch); // Attach alarm interrupt
-
 ```
 
 We can also use the RTC to set the create, write and access timestamps of the log file using SdFat.
@@ -292,7 +291,7 @@ Serial UBX messages sent from the Adalogger to the ZED-F9P are all acknowledged 
 and discards them without writing them into the log file. RTKLIB can probably cope with these acks/nacks being in the log files, but the code does
 try to make life as easy as possible for RTKLIB by discarding them.
 
-## Checking everyting is OK
+## Checking everything is OK
 
 The length of the RAWX messages increases depending on how many satellites are being tracked. We need to check that we are not trying to log
 more data than the serial interface and SD card can cope with.
@@ -414,7 +413,7 @@ void TC3_Handler() {
 }
 ```
 
-In the main loop, we enable the timer interrupt _after_ processing the NMEA messages using the Adafruit GPS library:
+In the main loop, we enable the timer interrupt _after_ setting the RTC:
 
 ```
 // Now that Serial1 should be idle and the buffer empty, start TC3 interrupts to copy all new data into SerialBuffer

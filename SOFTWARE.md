@@ -85,10 +85,10 @@ We now need to install some libraries that are required by the RAWX_Logger_F9P c
 The Arduino code uses the [SparkFun Ublox library](https://github.com/sparkfun/SparkFun_Ublox_Arduino_Library)
 to communicate with the ZED-F9P over its UART and I2C ports:
 
-[F9P_RAWX_Logger](https://github.com/PaulZC/F9P_RAWX_Logger/tree/master/Arduino/RAWX_Logger_F9P) uses the Ublox library
+[RAWX_Logger_F9P](https://github.com/PaulZC/F9P_RAWX_Logger/tree/master/Arduino/RAWX_Logger_F9P) uses the Ublox library
 to communicate with the ZED-F9P over UART only, minimising the number of connections between the ZED-F9P and the Adalogger.
 
-In [F9P_RAWX_Logger_I2C](https://github.com/PaulZC/F9P_RAWX_Logger/tree/master/Arduino/RAWX_Logger_F9P_I2C) all of the message
+In [RAWX_Logger_F9P_I2C](https://github.com/PaulZC/F9P_RAWX_Logger/tree/master/Arduino/RAWX_Logger_F9P_I2C) all of the message
 configuration is done over I2C, leaving the UART port clear for the RAWX messages themselves. This has the significant advantage
 that the UBX message acknowledgements go over I2C instead of UART, meaning there is no chance of accidentally logging them with the RAWX data.
 
@@ -133,8 +133,8 @@ Downloads directory.
 
 - Open File Explorer (right-click on the Windows icon in the bottom left corner of your screen then click on "File Explorer")
 - Click on your "Downloads" quick access link
-- Double-click on the RAWX_Logger_F9P-master.zip file
-- Double-click on the RAWX_Logger_F9P-master folder
+- Double-click on the F9P_RAWX_Logger-master.zip file
+- Double-click on the F9P_RAWX_Logger-master folder
 - Double-click on the Arduino folder
 - Right-click on the RAWX_Logger_F9P folder and click "Copy"
 - Click on your "Documents" quick access link
