@@ -23,9 +23,8 @@ UBX message frames comprise:
 - The payload
 - A two byte checksum
 
-The Arduino code contains a function called "sendUBX" which will automatically calculate and append the checksum for you.
-The messages are defined in the code as byte arrays (uint8_t). Make sure the message payload length is defined correctly inside each message (bytes 4 and 5)
-in little endian format.
+The SparkFun ublox library does all of the heavy lifting. You don't need to worry about formatting the UBX messages and
+calculating the checksums etc., the setVal and sendCfgValset functions do all of that for you.
 
 ## Initialisation: Baud Rate
 
@@ -37,45 +36,69 @@ The first thing we need to do is to increase the baud rate to 230400 baud so the
 The relevant parts of the Arduino code are:
 
 ```
-#include <Adafruit_GPS.h> // Include the Adafruit GPS library
-Adafruit_GPS GPS(&Serial1); // Create a GPS instance using Serial1
-#define GPSECHO false // Disable message echoing
-GPS.begin(38400); // Open Serial1 at 38400 baud
-sendUBX(setUART1BAUD); // Change the ZED-F9P UART1 Baud Rate
-delay(1100); // Wait
-GPS.begin(230400); // Restart Serial1 at 230400 baud
+// Include the SparkFun u-blox Library
+#include <SparkFun_Ublox_Arduino_Library.h> //http://librarymanager/All#SparkFun_Ublox_GPS
+SFE_UBLOX_GPS GPS;
+```
+
+and
+
+```
+// Start the serial port
+Serial1.begin(38400);
+// Begin the GPS and ignore the response
+// (isConnected will return false if the ZED-F9P has already been set to 230400 baud)
+GPS.begin(Serial1);
+// Change the ZED-F9P UART Baud rate
+setUART1BAUD(); // Set ZED-F9P UART1 baud rate to 230400
+// Allow time for the Baud rate change
+delay(1100);
+// Restart serial communications
+Serial1.begin(230400); // Restart Serial1 at 230400 baud
 ```
 
 The important part is the definition of setUART1BAUD, which uses a UBX-CFG-VALSET message with a key ID of 0x40520001 (CFG-UART1-BAUDRATE)
 to set the UART1 baud rate in RAM (only) to 230400 baud.
 See section 5.9.27 of the interface manual for UBX-CFG-VALSET and section 6.7.24 for configuration of the UART1 interface.
-230400 in hexadecimal is 0x00038400, which becomes 0x00, 0x84, 0x03, 0x00 in little endian format.
-The key ID needs to be sent in little endian format too, so it becomes 0x01, 0x00, 0x52, 0x40.
+230400 in hexadecimal is 0x00038400.
+The SparkFun ublox library does all of the little-endian conversion for you.
 
 ```
-static const uint8_t setUART1BAUD[] = { 0xb5, 0x62,  0x06, 0x8a,  0x0c, 0x00,  0x00, 0x01, 0x00, 0x00,
-  0x01, 0x00, 0x52, 0x40,  0x00, 0x84, 0x03, 0x00 };
+uint8_t setUART1BAUD() {
+  return GPS.setVal32(0x40520001, 0x00038400, VAL_LAYER_RAM);
+}
 ```
 
 ## Initialisation: UBX messages
 
 In case the logger was reset while the ZED-F9P was sending RAWX messages, we need to make sure the UBX RAWX, SFRBX and TIM_TM2 messages
-are disabled as they will confuse the GPS library. We do this by sending a UBX-CFG-VALSET message with key IDs of:
+are disabled. We do this by sending a UBX-CFG-VALSET message with key IDs of:
 - 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
 - 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
 - 0x20910179 (CFG-MSGOUT-UBX_TIM_TM2_UART1)
-
-and values (rates) of zero:
+- 0x2091002a (CFG-MSGOUT-UBX_NAV_POSLLH_UART1)
+- 0x20910007 (CFG-MSGOUT-UBX_NAV_PVT_UART1)
+- 0x2091001b (CFG-MSGOUT-UBX_NAV_STATUS_UART1)
+- 0x10930006 (CFG-NMEA-HIGHPREC)
+- 0x209100bb (CFG-MSGOUT-NMEA_ID_GGA_UART1)
 
 ```
-setRAWXoff[] = { 0xb5, 0x62,  0x06, 0x8a,  0x13, 0x00,  0x00, 0x01, 0x00, 0x00,
-  0xa5, 0x02, 0x91, 0x20,  0x00,  0x32, 0x02, 0x91, 0x20,  0x00,  0x79, 0x01, 0x91, 0x20,  0x00 };
+uint8_t setRAWXoff() {
+  GPS.newCfgValset8(0x209102a5, 0x00, VAL_LAYER_RAM);    // CFG-MSGOUT-UBX_RXM_RAWX_UART1
+  GPS.addCfgValset8(0x20910232, 0x00);    // CFG-MSGOUT-UBX_RXM_SFRBX_UART1
+  GPS.addCfgValset8(0x20910179, 0x00);    // CFG-MSGOUT-UBX_TIM_TM2_UART1
+  GPS.addCfgValset8(0x2091002a, 0x00);    // CFG-MSGOUT-UBX_NAV_POSLLH_UART1
+  GPS.addCfgValset8(0x20910007, 0x00);    // CFG-MSGOUT-UBX_NAV_PVT_UART1
+  GPS.addCfgValset8(0x2091001b, 0x00);    // CFG-MSGOUT-UBX_NAV_STATUS_UART1
+  GPS.addCfgValset8(0x20930031, 0x01);    // CFG-NMEA-MAINTALKERID : This line sets the main talker ID to GP
+  GPS.addCfgValset8(0x10930006, 0x00);    // CFG-NMEA-HIGHPREC : This line disables NMEA high precision mode
+  return GPS.sendCfgValset8(0x209100bb, 0x00);  // CFG-MSGOUT-NMEA_ID_GGA_UART1 : This line disables the GGA message
+}
 ```
 
 ## Initialisation: NMEA messages
 
-To keep things simple for the Adafruit GPS library, we need to disable the GLL, GSA, GSV, VTG, and TXT(INF) messages
-and make sure that the GGA and RMC messages are enabled.
+To avoid NMEA 'noise' when waiting for a GNSS fix, we need to disable the GGA, RMC, GLL, GSA, GSV, VTG, and TXT(INF) messages.
 We do this by sending a UBX-CFG-VALSET message with key IDs of:
 - 0x209100ca (CFG-MSGOUT-NMEA_ID_GLL_UART1)
 - 0x209100c0 (CFG-MSGOUT-NMEA_ID_GSA_UART1)
@@ -85,26 +108,33 @@ We do this by sending a UBX-CFG-VALSET message with key IDs of:
 - 0x209100bb (CFG-MSGOUT-NMEA_ID_GGA_UART1)
 - 0x209100ac (CFG-MSGOUT-NMEA_ID_RMC_UART1)
 
+and values of 0:
+
 ```
-setNMEAon[] = { 0xb5, 0x62,  0x06, 0x8a,  0x27, 0x00,  0x00, 0x01, 0x00, 0x00,
-  0xca, 0x00, 0x91, 0x20,  0x00,
-  0xc0, 0x00, 0x91, 0x20,  0x00,  0xc5, 0x00, 0x91, 0x20,  0x00,
-  0xb1, 0x00, 0x91, 0x20,  0x00,  0x07, 0x00, 0x92, 0x20,  0x00,
-  0xbb, 0x00, 0x91, 0x20,  0x01,  0xac, 0x00, 0x91, 0x20,  0x01 };
+uint8_t setNMEAoff() {
+  GPS.newCfgValset8(0x209100ca, 0x00, VAL_LAYER_RAM);
+  GPS.addCfgValset8(0x209100c0, 0x00);
+  GPS.addCfgValset8(0x209100c5, 0x00);
+  GPS.addCfgValset8(0x209100b1, 0x00);
+  GPS.addCfgValset8(0x20920007, 0x00);
+  GPS.addCfgValset8(0x209100bb, 0x00);
+  return GPS.sendCfgValset8(0x209100ac, 0x00);
+}
 ```
 
 ## Initialisation: Talker ID
 
 As the ZED-F9P can track all four major GNSS constellations (GPS, Galileo, GLONASS and BeiDou) concurrently, it will normally output NMEA
-messages which begin "GN" instead of "GP". This could confuse the Adafruit GPS library (and TinyGPS) so we need to change the "talker ID" to "GP".
+messages which begin "GN" instead of "GP". This could confuse some NMEA parsing code so we need to change the "talker ID" to "GP".
 We do this by sending a UBX-CFG-VALSET message with a key ID of:
 - 0x20930031 (CFG-NMEA-MAINTALKERID)
 
 and a value of 1:
 
 ```
-setTALKERID[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,
-  0x31, 0x00, 0x93, 0x20,  0x01 };
+uint8_t setTALKERID() {
+  return GPS.setVal8(0x20930031, 0x01, VAL_LAYER_RAM);
+}
 ```
 
 ## Initialisation: Set Measurement Rate
@@ -113,18 +143,16 @@ During RAWX logging, the measurement rate will be increased to (e.g.) 4 Hz. Duri
 We do this by sending a UBX-CFG-VALSET message with a key ID of:
 - 0x30210001 (CFG-RATE-MEAS)
 
-and a value of 1000 milliseconds. 1000 in hexadecimal is 0x03e8, which becomes 0xe8, 0x03 in U2 little endian format:
+and a value of 1000 milliseconds. 1000 in hexadecimal is 0x03e8:
 
 ```
-setRATE_1Hz[] = { 0xb5, 0x62,  0x06, 0x8a,  0x0a, 0x00,  0x00, 0x01, 0x00, 0x00,
-  0x01, 0x00, 0x21, 0x30,  0xe8, 0x03 };
+uint8_t setRATE_1Hz() { return GPS.setVal16(0x30210001, 0x03e8, VAL_LAYER_RAM); }
 ```
 
 Later we will use a value of 250 milliseconds (0x00fa) to set the rate to 4 Hz for RAWX logging:
 
 ```
-setRATE_4Hz[] = { 0xb5, 0x62,  0x06, 0x8a,  0x0a, 0x00,  0x00, 0x01, 0x00, 0x00,
-  0x01, 0x00, 0x21, 0x30,  0xfa, 0x00 };
+uint8_t setRATE_4Hz() { return GPS.setVal16(0x30210001, 0x00fa, VAL_LAYER_RAM); }
 ```
 
 ## Initialisation: Set Navigation Dynamic Model
@@ -135,85 +163,72 @@ For the base logger, we need to set the navigation dynamic model to STATionary. 
 and a value of 2:
 
 ```
-setNAVstationary[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,
-  0x21, 0x00, 0x11, 0x20,  0x02 };
+uint8_t setNAVstationary() { return GPS.setVal8(0x20110021, 0x02, VAL_LAYER_RAM); };
 ```
 
 For the rover logger, we set the dynamic model to "AIR1" (airborne with <1g acceleration) using a value of 6:
 
 ```
-setNAVair1g[] = { 0xb5, 0x62,  0x06, 0x8a,  0x09, 0x00,  0x00, 0x01, 0x00, 0x00,
-  0x21, 0x00, 0x11, 0x20,  0x06 };
+uint8_t setNAVair1g() { return GPS.setVal8(0x20110021, 0x06, VAL_LAYER_RAM); };
 ```
 
 The values for the other dynamic models are defined at the end of section 6.7.12 in the interface manual.
 
-## NMEA Parsing
-
-We can now be confident that only the NMEA GPGGA and GPRMC messages are being produced. So we can use the Adafruit GPS library to parse them:
-
-```
-char c = GPS.read(); // read data from the GNSS
-if (GPSECHO) // if you want to debug, this is a good time to do it!
-  if (c) Serial.print(c);
-if (GPS.newNMEAreceived()) { // if a sentence is received, we can check the checksum, parse it...
-  // we can fail to parse a sentence in which case we should just wait for another
-  if (!GPS.parse(GPS.lastNMEA())) break;
-```
-
 ## Set the RTC
 
-The GPS.fix flag will be set true once the ZED-F9P has established a fix. We can then use the GNSS (UTC) time to set the SAMD Real Time Clock:
+GPS.getFixType() will return a non-zero value once the ZED-F9P has established a fix. We can then use the GNSS (UTC) time to set the SAMD Real Time Clock:
 
 ```
 // Set and start the RTC
 alarmFlag = false; // Make sure alarm flag is clear
 rtc.begin(); // Start the RTC
-rtc.setTime(GPS.hour, GPS.minute, GPS.seconds); // Set the time
-rtc.setDate(GPS.day, GPS.month, GPS.year); // Set the date
+rtc.setTime(GPS.getHour(), GPS.getMinute(), GPS.getSecond()); // Set the time
+rtc.setDate(GPS.getDay(), GPS.getMonth(), (uint8_t)(GPS.getYear() - 2000)); // Set the date
 ```
 
 We can then use RTC alarm interrupts to close the RAWX log file and open a new one every INTERVAL minutes:
 
 ```
 rtc.setAlarmSeconds(0); // Set RTC Alarm Seconds to zero
-uint8_t nextAlarmMin = ((GPS.minute+INTERVAL)/INTERVAL)*INTERVAL; // Calculate next alarm minutes
+uint8_t nextAlarmMin = ((GPS.getMinute()+INTERVAL)/INTERVAL)*INTERVAL; // Calculate next alarm minutes
 nextAlarmMin = nextAlarmMin % 60; // Correct hour rollover
 rtc.setAlarmMinutes(nextAlarmMin); // Set RTC Alarm Minutes
 rtc.enableAlarm(rtc.MATCH_MMSS); // Alarm Match on minutes and seconds
 rtc.attachInterrupt(alarmMatch); // Attach alarm interrupt
+
 ```
 
 We can also use the RTC to set the create, write and access timestamps of the log file using SdFat.
 
 ## RAWX messages
           
-Now that the ZED-F9P has established a fix and we have set the RTC, we can disable the GGA and RMC NMEA messages.
-We do this by sending a UBX-CFG-VALSET message with key IDs of:
-- 0x209100bb (CFG-MSGOUT-NMEA_ID_GGA_UART1)
-- 0x209100ac (CFG-MSGOUT-NMEA_ID_RMC_UART1)
+Now that the ZED-F9P has established a fix and we have set the RTC, we now need to speed up the measurement rate to 4 Hz using the
+setRATE_4Hz message we defined earlier.
 
-and values of zero:
-
-```
-setNMEAoff[] = { 0xb5, 0x62,  0x06, 0x8a,  0x0e, 0x00,  0x00, 0x01, 0x00, 0x00,
-  0xbb, 0x00, 0x91, 0x20,  0x00,  0xac, 0x00, 0x91, 0x20,  0x00 };
-```
-
-We now need to speed up the measurement rate to 4 Hz using the setRATE_4Hz message we defined earlier.
-
-Finally, we can enable the RAWX, SFRBX and TIM_TM2 messages. We do this by sending a UBX-CFG-VALSET message with key IDs of:
+Finally, we can enable the RAWX, SFRBX, TIM_TM2 and any other messages we want to log. We do this by sending a UBX-CFG-VALSET message with key IDs of:
 - 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
 - 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
 - 0x20910179 (CFG-MSGOUT-UBX_TIM_TM2_UART1)
+- 0x2091002a (CFG-MSGOUT-UBX_NAV_POSLLH_UART1)
+- 0x20910007 (CFG-MSGOUT-UBX_NAV_PVT_UART1)
+- 0x2091001b (CFG-MSGOUT-UBX_NAV_STATUS_UART1)
+- 0x10930006 (CFG-NMEA-HIGHPREC)
+- 0x209100bb (CFG-MSGOUT-NMEA_ID_GGA_UART1)
 
 and values (rates) of 1:
 
 ```
-setRAWXon[] = { 0xb5, 0x62,  0x06, 0x8a,  0x13, 0x00,  0x00, 0x01, 0x00, 0x00,
-  0xa5, 0x02, 0x91, 0x20,  0x01,
-  0x32, 0x02, 0x91, 0x20,  0x01,
-  0x79, 0x01, 0x91, 0x20,  0x01 };
+uint8_t setRAWXon_noWait() {
+  GPS.newCfgValset8(0x209102a5, 0x01, VAL_LAYER_RAM);
+  GPS.addCfgValset8(0x20910232, 0x01);
+  GPS.addCfgValset8(0x20910179, 0x01);
+  GPS.addCfgValset8(0x2091002a, 0x00);   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
+  GPS.addCfgValset8(0x20910007, 0x01);   // Change the last byte from 0x01 to 0x00 to leave NAV_PVT disabled
+  GPS.addCfgValset8(0x2091001b, 0x01);   // This line enables the NAV_STATUS message
+  GPS.addCfgValset8(0x20930031, 0x03);   // This line sets the main talker ID to GN
+  GPS.addCfgValset8(0x10930006, 0x01);   // This sets the NMEA high precision mode
+  return GPS.sendCfgValset8(0x209100bb, 0x01, 0); // This (re)enables the GGA mesage
+}
 ```
 
 If you study the code, you will see that the NAV_POSLLH, NAV_PVT and NAV_STATUS are also enabled and logged. You can disable these by editing the setRAWXon
@@ -221,11 +236,11 @@ message definition. However, I would recommend leaving NAV_STATUS enabled as the
 
 The latest version of the logger code can log NMEA format messages to the SD card too. This is useful as RTKLIB can extract high precision GNGGA messages from
 the log file. Have a look at the definition for setRAWXon in the code, you will be able to see the key IDs that enable the GNGGA message and high precision mode.
-setRAWXoff disables the high precision mode in case the extra decimal places in the latitude and longitude confuse the Adafruit GPS library.
+setRAWXoff disables the high precision mode in case the extra decimal places in the latitude and longitude confuse the SparkFun ublox library.
 
 ## Opening the log file
 
-We can now be confident that only UBX RXM_RAWX, RXM_SFRBX and TIM_TM2 messages are being produced. So _all_ we need to do is open a log file on the SD
+We can now be confident that the UBX RXM_RAWX, RXM_SFRBX and TIM_TM2 messages are being produced. So all we need to do is open a log file on the SD
 card and throw everything we receive on Serial1 into it. You will find the code that opens the log file starting with the line:
 
 ```
@@ -273,7 +288,7 @@ You can change how often a new file is opened by changing the value of INTERVAL 
 The code will wait until it gets to the end of the current UBX frame before opening the new file, to ensure the data in the individual log files
 is as clean and contiguous as possible.
 
-UBX messages sent from the Adalogger to the ZED-F9P are all acknowledged (or nacknowledged) by a short ack/nack message. The code expects these
+Serial UBX messages sent from the Adalogger to the ZED-F9P are all acknowledged (or nacknowledged) by a short ack/nack message. The code expects these
 and discards them without writing them into the log file. RTKLIB can probably cope with these acks/nacks being in the log files, but the code does
 try to make life as easy as possible for RTKLIB by discarding them.
 
@@ -321,7 +336,7 @@ Here is the line that defines the large SerialBuffer:
 ```
 // Define SerialBuffer as a large RingBuffer which we will use to store the Serial1 receive data
 // That way, we do not need to increase the size of the Serial1 receive buffer (by editing RingBuffer.h)
-RingBufferN<8192> SerialBuffer; // Define SerialBuffer as a RingBuffer of size 8192 bytes
+RingBufferN<16384> SerialBuffer; // Define SerialBuffer as a RingBuffer of size 16384 bytes
 ```
 
 Here is the code that sets up the TC3 timer interrupt. It is based on the code provided by
@@ -423,48 +438,10 @@ significant overhead given that the ISR runs every 434 usec, but it is a price w
 
 ## RAWX_Logger_F9P_I2C
 
-The experimental RAWX_Logger_F9P_I2C code uses the I2C port to do all of the message configuration, instead of UART. This makes the code
-much more efficient as the UART port can be dedicated exclusively to the RAWX messages; all data received over UART can be simply streamed onto the
-SD card without having to worry about having to extract UBX message acknowledgements.
-
-The code is experimental since (at the time of writing) the SparkFun Ublox library does not contain a multi-setVal command. This has been
-raised as an issue and no doubt Nate will come up trumps when he has time to take a look. Until then the code defines the VALSET messages
-as custom ubxPackets and sends them using sendCommand. The sendCommand calls all timeout as other parts of the library are expecting the packet to be in
-packetCfg, not our custom packets. But, apart from that, the code works well. Please give it a try if you want to but remember that you will need to
-connect the SDA and SCL pins on the Adalogger to the GPS-RTK2 board.
-
-```
-// setRAWXon: this is the message which enables all of the messages to be logged to SD card in one go
-// It also sets the NMEA high precision mode for the GNGGA message
-// It also sets the main talker ID to 'GN'
-// UBX-CFG-VALSET message with key IDs of:
-// 0x209102a5 (CFG-MSGOUT-UBX_RXM_RAWX_UART1)
-// 0x20910232 (CFG-MSGOUT-UBX_RXM_SFRBX_UART1)
-// 0x20910179 (CFG-MSGOUT-UBX_TIM_TM2_UART1)
-// 0x2091002a (CFG-MSGOUT-UBX_NAV_POSLLH_UART1)
-// 0x20910007 (CFG-MSGOUT-UBX_NAV_PVT_UART1)
-// 0x2091001b (CFG-MSGOUT-UBX_NAV_STATUS_UART1)
-// 0x10930006 (CFG-NMEA-HIGHPREC)
-// 0x209100bb (CFG-MSGOUT-NMEA_ID_GGA_UART1)
-// and values (rates) of 1
-// 0x20930031 (CFG-NMEA-MAINTALKERID) has value 3 (GN)
-static uint8_t setRAWXon_payload[] = {
-  0x00, 0x01, 0x00, 0x00,
-  0xa5, 0x02, 0x91, 0x20,  0x01,
-  0x32, 0x02, 0x91, 0x20,  0x01,
-  0x79, 0x01, 0x91, 0x20,  0x01,
-  0x2a, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
-  0x07, 0x00, 0x91, 0x20,  0x01,   // Change the last byte from 0x01 to 0x00 to leave NAV_PVT disabled
-  0x1b, 0x00, 0x91, 0x20,  0x01,   // This line enables the NAV_STATUS message
-  0x31, 0x00, 0x93, 0x20,  0x03,   // This line sets the main talker ID to GN
-  0x06, 0x00, 0x93, 0x10,  0x01,   // This sets the NMEA high precision mode
-  0xbb, 0x00, 0x91, 0x20,  0x01 }; // This (re)enables the GGA mesage
-ubxPacket setRAWXon = { 0x06, 0x8a,  49, 0, 0,  setRAWXon_payload,  0, 0, false };
-```
-
-```
-i2cGPS.sendCommand(setRAWXon); // (Re)Start the UBX and NMEA messages
-```
+RAWX_Logger_F9P_I2C code uses the I2C port to do all of the message configuration, instead of UART. This makes the code
+much more efficient as the UART port can be dedicated exclusively to the RAWX messages; all data received over UART can be
+simply streamed onto the SD card without having to worry about having to extract UBX message acknowledgements.
+Please give it a try if you want to but remember that you will need to connect the SDA and SCL pins on the Adalogger to the GPS-RTK2 board.
 
 Enjoy!
 

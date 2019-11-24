@@ -80,14 +80,20 @@ Now would be a good time to connect a small (~100mAh) LiPo battery to the Adalog
 
 We now need to install some libraries that are required by the RAWX_Logger_F9P code.
 
-### Adafruit GPS Library
+### SparkFun Ublox Library
 
-RAWX_Logger_F9P uses the Adafruit GPS library to parse the standard NMEA messages output by the F9P to set the M0's
-Real Time Clock (RTC).
+The Arduino code uses the [SparkFun Ublox library](https://github.com/sparkfun/SparkFun_Ublox_Arduino_Library)
+to communicate with the ZED-F9P over its UART and I2C ports:
+
+[F9P_RAWX_Logger](https://github.com/PaulZC/F9P_RAWX_Logger/tree/master/Arduino/RAWX_Logger_F9P) uses the Ublox library
+to communicate with the ZED-F9P over UART only, minimising the number of connections between the ZED-F9P and the Adalogger.
+
+In [F9P_RAWX_Logger_I2C](https://github.com/PaulZC/F9P_RAWX_Logger/tree/master/Arduino/RAWX_Logger_F9P_I2C) all of the message
+configuration is done over I2C, leaving the UART port clear for the RAWX messages themselves. This has the significant advantage
+that the UBX message acknowledgements go over I2C instead of UART, meaning there is no chance of accidentally logging them with the RAWX data.
 
 Click on the Tools menu and then click "Manage Libraries". The Library Manager window will open.
-
-Use the filter text box to search for "Adafruit GPS". Hover over the line which says "Adafruit GPS Library"
+Use the library manager filter text box to search for "SparkFun Ublox". Hover over the line which says "SparkFun Ublox Library"
 and click "Install".
 
 ### RTCZero
@@ -111,17 +117,6 @@ RAWX_Logger_F9P can use a NeoPixel to provide additional information during logg
 if you want to take advantage of this. By default, the NeoPixel needs to be connected to D13 (sharing the pin with the on-board red LED).
 
 Use the library manager filter text box to search for "Adafruit NeoPixel". Hover over the line which says "Adafruit NeoPixel Library"
-and click "Install".
-
-### SparkFun Ublox Library
-
-The [Arduino folder](https://github.com/PaulZC/F9P_RAWX_Logger/tree/master/Arduino) also contains an Arduino sketch called RAWX_Logger_F9P_I2C.
-This code is a little more experimental than the main Logger code, but is also more efficient. It uses the [SparkFun Ublox library](https://github.com/sparkfun/SparkFun_Ublox_Arduino_Library)
-to communicate with the ZED-F9P over its I2C port. All of the message configuration is done over I2C, leaving the UART port clear for the RAWX
-messages themselves. This has the significant advantage that the UBX message acknowledgements go over I2C instead of UART, meaning
-there is no chance of accidentally logging them with the RAWX data.
-
-Use the library manager filter text box to search for "SparkFun Ublox". Hover over the line which says "SparkFun Ublox Library"
 and click "Install".
 
 You can now close the library manager.
@@ -150,6 +145,8 @@ All being well, you should now have a Documents\Arduino\RAWX_Logger_F9P folder c
 
 In the Ardino IDE, click on the File menu and then "Open...". When the file window opens double-click on the RAWX_Logger_F9P folder
 and then double-click on the RAWX_Logger_F9P.ino file. The logger code will open in a new window. You can now close the Blink window.
+
+Repeat the last four steps for the RAWX_Logger_F9P_I2C folder if you want to use the (more efficient) I2C code.
 
 ## Next > [HARDWARE.md](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/HARDWARE.md)
 

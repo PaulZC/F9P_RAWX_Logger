@@ -27,12 +27,9 @@ The [SparkFun GPS-RTK2 Board](https://www.sparkfun.com/products/15136) is equipp
 
 The u-blox ZED-F9P is a sophisticated dual band (L1 + L2) GNSS receiver which can act as a Real Time Kinematic base or rover. It has a variety of interfaces:
 UART, SPI, I2C and USB. SparkFun have included their Qwiic I2C connectors on the board, making it easy to interface it to their other Qwiic boards.
-For the RAWX_Logger we will only be using the UART interface (the Arduino code disables the I2C and USB interfaces - edit the code if you want
-these to remain enabled).
 
-This project only logs RAWX messages which can be post-processed (PPK) using [rtklibexplorer's](https://rtklibexplorer.wordpress.com/) version of
-[RTKLIB](http://rtkexplorer.com/downloads/rtklib-code/); it does not currently make use of the F9P's RTK features. However, you will find UART2, SURVEY_IN and RTCM
-configuration messages defined in the code which will be useful if you do want to try RTK.
+The Arduino code logs RAWX messages which can be post-processed (PPK) using [rtklibexplorer's](https://rtklibexplorer.wordpress.com/) version of
+[RTKLIB](http://rtkexplorer.com/downloads/rtklib-code/).
 
 Like the Adalogger, there are many ways to hook up the F9P board. Again, the simplest is to use header pins and jumper wires.
 
@@ -61,7 +58,7 @@ The RST connection is only necessary if you want the Adalogger reset switch to b
 
 Connect the SparkFun board to a suitable **active** L1/L2 GNSS antenna using the uFL socket. You may need to use a [uFL to SMA adapter](https://www.sparkfun.com/products/9145).
 
-If you want to try the experimental (but very efficient) RAWX_Logger_F9P_I2C code, you will also need to connect up the SDA and SCL pins:
+If you want to try the (more efficient) RAWX_Logger_F9P_I2C code, you will also need to connect up the SDA and SCL pins:
 
 ![I2C](https://github.com/PaulZC/F9P_RAWX_Logger/blob/master/img/I2C.JPG)
 
