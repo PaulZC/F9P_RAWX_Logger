@@ -240,7 +240,7 @@ uint8_t setRAWXon() {
   i2cGPS.newCfgValset8(0x209102a5, 0x01, VAL_LAYER_RAM);
   i2cGPS.addCfgValset8(0x20910232, 0x01);
   i2cGPS.addCfgValset8(0x20910179, 0x01);
-  i2cGPS.addCfgValset8(0x2091002a, 0x00);   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
+  i2cGPS.addCfgValset8(0x2091002a, 0x00);   // Change the last byte from 0x00 to 0x01 to enable NAV_POSLLH
   i2cGPS.addCfgValset8(0x20910007, 0x01);   // Change the last byte from 0x01 to 0x00 to leave NAV_PVT disabled
   i2cGPS.addCfgValset8(0x2091001b, 0x01);   // This line enables the NAV_STATUS message
   i2cGPS.addCfgValset8(0x20930031, 0x03);   // This line sets the main talker ID to GN

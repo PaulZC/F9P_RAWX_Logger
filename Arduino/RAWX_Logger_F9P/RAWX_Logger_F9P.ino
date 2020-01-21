@@ -268,7 +268,7 @@ uint8_t setRAWXon_noWait() {
   GPS.newCfgValset8(0x209102a5, 0x01, VAL_LAYER_RAM);
   GPS.addCfgValset8(0x20910232, 0x01);
   GPS.addCfgValset8(0x20910179, 0x01);
-  GPS.addCfgValset8(0x2091002a, 0x00);   // Change the last byte from 0x01 to 0x00 to leave NAV_POSLLH disabled
+  GPS.addCfgValset8(0x2091002a, 0x00);   // Change the last byte from 0x00 to 0x01 to enable NAV_POSLLH
   GPS.addCfgValset8(0x20910007, 0x01);   // Change the last byte from 0x01 to 0x00 to leave NAV_PVT disabled
   GPS.addCfgValset8(0x2091001b, 0x01);   // This line enables the NAV_STATUS message
   GPS.addCfgValset8(0x20930031, 0x03);   // This line sets the main talker ID to GN
